@@ -1,0 +1,62 @@
+name: ai-mail-assistant
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo-data:/data/db
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-data:/data
+
+  server:
+    build:
+      context: ./server
+    env_file:
+      - ./server/.env
+    environment:
+      MONGO_URI: mongodb://mongo:27017/ai-mail-assistant
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '5000:5000'
+    depends_on:
+      - mongo
+      - redis
+
+  worker:
+    build:
+      context: ./server
+    command: ['node', 'dist/modules/queue/worker.js']
+    env_file:
+      - ./server/.env
+    environment:
+      MONGO_URI: mongodb://mongo:27017/ai-mail-assistant
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      - mongo
+      - redis
+    # Scale independently of the API, e.g.: docker compose up --scale worker=3
+    deploy:
+      replicas: 1
+
+  client:
+    build:
+      context: ./client
+      args:
+        VITE_API_BASE_URL: http://localhost:5000/api/v1
+    ports:
+      - '5173:80'
+    depends_on:
+      - server
+
+volumes:
+  mongo-data:
+  redis-data:

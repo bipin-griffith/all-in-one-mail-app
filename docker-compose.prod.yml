@@ -1,0 +1,61 @@
+name: ai-mail-assistant
+
+# Production compose for a single EC2 host: MongoDB is Atlas (external, via
+# MONGO_URI secret), Redis is self-hosted in-container for BullMQ. Scale the
+# API/worker horizontally across more EC2 instances behind an ALB as load grows.
+services:
+  redis:
+    image: redis:7-alpine
+    restart: always
+    volumes:
+      - redis-data:/data
+    logging:
+      driver: json-file
+      options: { max-size: '10m', max-file: '3' }
+
+  server:
+    image: ${SERVER_IMAGE}
+    restart: always
+    env_file:
+      - ./server/.env
+    environment:
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '5000:5000'
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits: { memory: 512M }
+    logging:
+      driver: json-file
+      options: { max-size: '10m', max-file: '5' }
+
+  worker:
+    image: ${SERVER_IMAGE}
+    command: ['node', 'dist/modules/queue/worker.js']
+    restart: always
+    env_file:
+      - ./server/.env
+    environment:
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      - redis
+    deploy:
+      replicas: 2
+      resources:
+        limits: { memory: 512M }
+    logging:
+      driver: json-file
+      options: { max-size: '10m', max-file: '5' }
+
+  client:
+    image: ${CLIENT_IMAGE}
+    restart: always
+    ports:
+      - '80:80'
+    depends_on:
+      - server
+
+volumes:
+  redis-data:

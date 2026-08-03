@@ -1,0 +1,12 @@
+process.env.NODE_ENV = 'test';
+process.env.CLIENT_URL = 'http://localhost:5173';
+process.env.API_BASE_URL = 'http://localhost:5000';
+process.env.MONGO_URI = 'mongodb://localhost:27017/test';
+process.env.REDIS_URL = 'redis://localhost:6379';
+process.env.JWT_ACCESS_SECRET = 'test_access_secret_at_least_32_characters_long';
+process.env.JWT_REFRESH_SECRET = 'test_refresh_secret_at_least_32_characters_long';
+process.env.ENCRYPTION_KEY = 'test_encryption_key_at_least_32_characters';
+process.env.GOOGLE_CLIENT_ID = 'test-client-id';
+process.env.GOOGLE_CLIENT_SECRET = 'test-client-secret';
+process.env.GOOGLE_REDIRECT_URI = 'http://localhost:5000/api/v1/auth/google/callback';
+process.env.OPENAI_API_KEY = 'test-openai-key';
