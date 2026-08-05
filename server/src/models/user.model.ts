@@ -13,7 +13,6 @@ export interface UserDocument extends Document {
   avatarUrl: string | null;
   authProvider: 'local' | 'google';
   role: 'user' | 'admin';
-  refreshTokenHash: string | null;
   isEmailVerified: boolean;
   plan: 'free' | 'pro';
   aiUsage: UserAiUsage;
@@ -41,7 +40,6 @@ const userSchema = new Schema<UserDocument, UserModel>(
     avatarUrl: { type: String, default: null },
     authProvider: { type: String, enum: ['local', 'google'], required: true },
     role: { type: String, enum: ['user', 'admin'], default: 'user' },
-    refreshTokenHash: { type: String, default: null, select: false },
     isEmailVerified: { type: Boolean, default: false },
     plan: { type: String, enum: ['free', 'pro'], default: 'free' },
     aiUsage: {
@@ -54,7 +52,6 @@ const userSchema = new Schema<UserDocument, UserModel>(
     toJSON: {
       transform: (_doc, ret) => {
         Reflect.deleteProperty(ret, 'passwordHash');
-        Reflect.deleteProperty(ret, 'refreshTokenHash');
         Reflect.deleteProperty(ret, '__v');
         return ret;
       },

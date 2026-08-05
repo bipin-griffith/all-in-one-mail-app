@@ -23,8 +23,16 @@ function setRefreshCookie(res: Response, token: string): void {
   });
 }
 
+/** Captures the device/browser info stored on the Session document for that login. */
+function getRequestContext(req: Pick<Request, 'headers' | 'ip'>): authService.RequestContext {
+  return {
+    userAgent: req.headers['user-agent'] ?? 'unknown',
+    ip: req.ip ?? 'unknown',
+  };
+}
+
 export const register = asyncHandler(async (req: Request<unknown, unknown, RegisterInput>, res) => {
-  const { user, tokens } = await authService.register(req.body);
+  const { user, tokens } = await authService.register(req.body, getRequestContext(req));
   setRefreshCookie(res, tokens.refreshToken);
   sendSuccess(res, HttpStatus.CREATED, 'Account created', {
     user,
@@ -33,7 +41,7 @@ export const register = asyncHandler(async (req: Request<unknown, unknown, Regis
 });
 
 export const login = asyncHandler(async (req: Request<unknown, unknown, LoginInput>, res) => {
-  const { user, tokens } = await authService.login(req.body);
+  const { user, tokens } = await authService.login(req.body, getRequestContext(req));
   setRefreshCookie(res, tokens.refreshToken);
   sendSuccess(res, HttpStatus.OK, 'Logged in', { user, accessToken: tokens.accessToken });
 });
@@ -49,7 +57,7 @@ export const googleCallback = asyncHandler(async (req: Request, res: Response) =
     throw ApiError.badRequest('Missing OAuth authorization code');
   }
 
-  const { tokens } = await authService.loginWithGoogle(code);
+  const { tokens } = await authService.loginWithGoogle(code, getRequestContext(req));
   setRefreshCookie(res, tokens.refreshToken);
 
   // SPA picks the access token up from the URL fragment (never logged/cached by servers,
@@ -63,14 +71,15 @@ export const refresh = asyncHandler(async (req: Request, res: Response) => {
     throw ApiError.unauthorized('Missing refresh token');
   }
 
-  const tokens = await authService.refreshSession(token);
+  const tokens = await authService.rotateSession(token);
   setRefreshCookie(res, tokens.refreshToken);
   sendSuccess(res, HttpStatus.OK, 'Token refreshed', { accessToken: tokens.accessToken });
 });
 
+/** Logs out this device only — see DELETE /auth/sessions for "log out everywhere else". */
 export const logout = asyncHandler(async (req: Request, res: Response) => {
   if (req.user) {
-    await authService.logout(req.user.sub);
+    await authService.logoutSession(req.user.sid);
   }
   res.clearCookie(REFRESH_COOKIE_NAME, { path: '/api/v1/auth' });
   sendSuccess(res, HttpStatus.OK, 'Logged out', null);
@@ -79,4 +88,19 @@ export const logout = asyncHandler(async (req: Request, res: Response) => {
 export const me = asyncHandler(async (req: Request, res: Response) => {
   const user = await authService.getCurrentUser(req.user!.sub);
   sendSuccess(res, HttpStatus.OK, 'Current user', user);
+});
+
+export const listSessions = asyncHandler(async (req: Request, res: Response) => {
+  const sessions = await authService.listSessions(req.user!.sub, req.user!.sid);
+  sendSuccess(res, HttpStatus.OK, 'Active sessions', sessions);
+});
+
+export const revokeSession = asyncHandler(async (req: Request, res: Response) => {
+  await authService.revokeSession(req.user!.sub, req.params.id as string);
+  sendSuccess(res, HttpStatus.OK, 'Session revoked', null);
+});
+
+export const revokeOtherSessions = asyncHandler(async (req: Request, res: Response) => {
+  const count = await authService.revokeOtherSessions(req.user!.sub, req.user!.sid);
+  sendSuccess(res, HttpStatus.OK, 'Other sessions revoked', { revokedCount: count });
 });

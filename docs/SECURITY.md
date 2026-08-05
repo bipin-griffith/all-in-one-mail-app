@@ -4,9 +4,9 @@
 
 - Passwords hashed with `bcrypt` (cost factor 12), never stored or logged in plaintext.
 - Access tokens: short-lived JWT (15m), signed with `JWT_ACCESS_SECRET`, sent in `Authorization: Bearer`.
-- Refresh tokens: long-lived (7d), stored **hashed** (`sha256`) in `users.refreshTokenHash`, transported only via `httpOnly` + `secure` + `sameSite=strict` cookie — rotated on every use (old hash invalidated), so a stolen refresh token is single-use.
-- Google OAuth tokens (access + refresh) are encrypted at rest with AES-256-GCM (`server/src/utils/crypto.ts`) using a key from `ENCRYPTION_KEY`, never exposed via any API response (`select: false` + explicit omission in `toJSON`).
-- Route-level authorization via `authenticate` middleware; resource-level ownership checks happen in the service layer (`if (thread.emailAccount.user !== req.user.id) throw new ApiError(403, ...)`) — never trust an ID in the URL alone.
+- Refresh tokens: long-lived (7d), one per device via the `sessions` collection (not a single field on `User`), stored **hashed** (`sha256`), transported only via `httpOnly` + `secure` + `sameSite=strict` cookie — rotated in place on every use. A refresh token whose hash doesn't match its session's *current* hash is reuse of an already-rotated token; the session is deleted immediately, forcing re-login on that device. Users can audit and revoke sessions individually via `GET/DELETE /auth/sessions`. Full rationale: `docs/AUTH_AND_GMAIL.md`.
+- Google OAuth tokens (access + refresh) are encrypted at rest with AES-256-GCM (`server/src/utils/crypto.ts`) using a key from `ENCRYPTION_KEY`, never exposed via any API response (`select: false` + explicit omission in `toJSON`). These are entirely separate from our own JWTs — see AUTH_AND_GMAIL.md §2.1.
+- Route-level authorization via `authenticate` middleware; resource-level ownership checks happen in the service layer (`if (thread.emailAccount.user !== req.user.id) throw new ApiError(403, ...)`) — never trust an ID in the URL alone. The same pattern gates attachment downloads (`GET /emails/:id/attachments/:attachmentId`): ownership of the parent email is verified before any Gmail call is made.
 
 ## Transport / headers
 

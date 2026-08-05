@@ -1,5 +1,11 @@
 import { Schema, model, Types, type Document } from 'mongoose';
 
+export interface GmailLabel {
+  id: string;
+  name: string;
+  type: 'system' | 'user';
+}
+
 export interface EmailAccountDocument extends Document {
   user: Types.ObjectId;
   provider: 'google';
@@ -10,9 +16,26 @@ export interface EmailAccountDocument extends Document {
   historyId: string | null;
   syncStatus: 'idle' | 'syncing' | 'error';
   lastSyncedAt: Date | null;
+  /**
+   * The mailbox's label list (system labels like INBOX/SENT plus any
+   * user-created ones), refreshed on every sync. Denormalized onto the
+   * account rather than a separate Label collection — it's small
+   * (a few dozen entries at most), scoped 1:1 to the account, and read far
+   * more often than it changes, so embedding avoids a pointless join.
+   */
+  labels: GmailLabel[];
   createdAt: Date;
   updatedAt: Date;
 }
+
+const labelSchema = new Schema<GmailLabel>(
+  {
+    id: { type: String, required: true },
+    name: { type: String, required: true },
+    type: { type: String, enum: ['system', 'user'], required: true },
+  },
+  { _id: false },
+);
 
 const emailAccountSchema = new Schema<EmailAccountDocument>(
   {
@@ -25,6 +48,7 @@ const emailAccountSchema = new Schema<EmailAccountDocument>(
     historyId: { type: String, default: null },
     syncStatus: { type: String, enum: ['idle', 'syncing', 'error'], default: 'idle' },
     lastSyncedAt: { type: Date, default: null },
+    labels: { type: [labelSchema], default: [] },
   },
   {
     timestamps: true,

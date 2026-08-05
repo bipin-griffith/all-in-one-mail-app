@@ -32,3 +32,26 @@ export const emailAccountIdParamSchema = z
     id: z.string().regex(/^[a-f0-9]{24}$/i, 'Invalid email account id'),
   })
   .strict();
+
+const objectId = z.string().regex(/^[a-f0-9]{24}$/i, 'Invalid id');
+
+export const listEmailsQuerySchema = z
+  .object({
+    page: z.coerce.number().int().positive().default(1),
+    limit: z.coerce.number().int().positive().max(100).default(20),
+    category: z.enum(['inbox', 'sent', 'drafts', 'promotions', 'social', 'other']).optional(),
+    threadId: objectId.optional(),
+    q: z.string().trim().optional(),
+  })
+  .strict();
+
+export type ListEmailsQuery = z.infer<typeof listEmailsQuerySchema>;
+
+export const emailIdParamSchema = z.object({ id: objectId }).strict();
+
+export const attachmentParamSchema = z
+  .object({
+    id: objectId,
+    attachmentId: z.string().min(1),
+  })
+  .strict();

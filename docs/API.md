@@ -33,23 +33,47 @@ HTTP status codes are meaningful and consistent (`server/src/constants/httpStatu
 | POST | `/login` | public | Email + password login → access + refresh token |
 | GET | `/google` | public | Redirect to Google OAuth consent |
 | GET | `/google/callback` | public | OAuth callback, creates/links user, redirects to client with tokens |
-| POST | `/refresh` | public (refresh cookie) | Rotate access token |
-| POST | `/logout` | private | Revoke refresh token |
+| POST | `/refresh` | public (refresh cookie) | Rotate the refresh token in place on the current session, issue a new access token |
+| POST | `/logout` | private | Revoke the **current** session only (see Session Management) |
 | GET | `/me` | private | Current user profile |
+| GET | `/sessions` | private | List this user's active sessions (device/IP/last used), current one flagged |
+| DELETE | `/sessions/:id` | private | Revoke one specific session ("log out this device") |
+| DELETE | `/sessions` | private | Revoke every session except the current one ("log out everywhere else") |
+
+Session management design (why a `Session` collection instead of a single
+token field, why there's no `revokedAt` flag, how refresh-token reuse is
+detected) is explained in [`docs/AUTH_AND_GMAIL.md`](AUTH_AND_GMAIL.md).
 
 ### Email Accounts — `/api/v1/email-accounts`
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| GET | `/` | private | List connected mailboxes |
-| POST | `/:id/sync` | private | Trigger an incremental sync (enqueues job) |
-| DELETE | `/:id` | private | Disconnect a mailbox, revoke tokens |
+| GET | `/` | private | List connected mailboxes (includes each mailbox's Gmail label list) |
+| POST | `/:id/sync` | private | Trigger a sync for one mailbox (enqueues job) → `202 { jobId }` |
+| DELETE | `/:id` | private | Disconnect a mailbox, delete its synced threads/emails |
 
-### Threads / Emails — `/api/v1/threads`
+### Sync — `/api/v1/sync`
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| GET | `/` | private | Paginated inbox (`?page=&limit=&category=&q=`) |
-| GET | `/:id` | private | Thread detail with messages |
+| POST | `/` | private | Trigger a sync for **every** mailbox the user has connected → `202 { jobIds }` |
+
+### Threads — `/api/v1/threads`
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/` | private | Paginated inbox grouped by thread (`?page=&limit=&category=&q=`) |
+| GET | `/:id` | private | Thread detail with its messages |
 | PATCH | `/:id` | private | Update labels / read state |
+
+### Emails — `/api/v1/emails`
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/` | private | Paginated, individual-message list (`?page=&limit=&category=&threadId=&q=`) — `category` is one of `inbox\|sent\|drafts\|promotions\|social\|other` |
+| GET | `/:id` | private | Single email, including attachment metadata |
+| GET | `/:id/attachments/:attachmentId` | private | Downloads attachment bytes, fetched from Gmail on demand (never stored in MongoDB — see AUTH_AND_GMAIL.md §2.6) |
+
+`GET /emails` and `GET /threads` overlap in purpose but not in shape: threads
+group messages into conversations (what the inbox UI renders), `GET /emails`
+is the flat, per-message view — useful for category-filtered views like
+"show me every promotional email" without the thread grouping.
 
 ### AI — `/api/v1/ai`
 | Method | Path | Auth | Description |

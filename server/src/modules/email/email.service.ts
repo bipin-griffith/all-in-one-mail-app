@@ -1,16 +1,12 @@
-import { google } from 'googleapis';
-import sanitizeHtml from 'sanitize-html';
-
-import { logger } from '../../config/logger';
-import { Email } from '../../models/email.model';
+import { Email, type EmailDocument } from '../../models/email.model';
 import { EmailAccount, type EmailAccountDocument } from '../../models/emailAccount.model';
 import { Thread } from '../../models/thread.model';
 import { ApiError } from '../../utils/ApiError';
-import { decrypt, encrypt } from '../../utils/crypto';
-import { createOAuthClient } from '../auth/google.oauth';
 import { enqueueEmailSync } from '../queue/queues/emailSync.queue';
 
-import type { ListThreadsQuery, UpdateThreadInput } from './email.validation';
+import type { ListEmailsQuery, ListThreadsQuery, UpdateThreadInput } from './email.validation';
+import { getAuthenticatedGmailClient } from './gmail/gmail.client';
+import { getAttachment as fetchAttachmentFromGmail } from './gmail/gmail.service';
 
 export async function listEmailAccounts(userId: string): Promise<EmailAccountDocument[]> {
   return EmailAccount.find({ user: userId }).sort({ createdAt: -1 });
@@ -33,21 +29,52 @@ export async function disconnectEmailAccount(userId: string, accountId: string):
   ]);
 }
 
-export async function triggerSync(userId: string, accountId: string): Promise<string> {
-  const account = await getOwnedEmailAccount(userId, accountId);
+/**
+ * Marks the account "syncing" and enqueues the job. If enqueueing itself
+ * fails (e.g. Redis briefly unreachable), the status is rolled back to
+ * "error" rather than left stuck on "syncing" forever with no job actually
+ * queued to ever resolve it.
+ */
+async function markSyncingAndEnqueue(account: EmailAccountDocument): Promise<string> {
   account.syncStatus = 'syncing';
   await account.save();
-  return enqueueEmailSync(account.id as string);
+
+  try {
+    return await enqueueEmailSync(account.id as string);
+  } catch (err) {
+    account.syncStatus = 'error';
+    await account.save();
+    throw err;
+  }
 }
 
-interface PaginatedThreads {
-  items: Awaited<ReturnType<typeof Thread.find>>;
+export async function triggerSync(userId: string, accountId: string): Promise<string> {
+  const account = await getOwnedEmailAccount(userId, accountId);
+  return markSyncingAndEnqueue(account);
+}
+
+/** POST /sync — syncs every mailbox the user has connected (usually just one). */
+export async function triggerSyncAll(userId: string): Promise<string[]> {
+  const accounts = await EmailAccount.find({ user: userId });
+  if (accounts.length === 0) {
+    throw ApiError.badRequest('No connected email accounts to sync');
+  }
+
+  const jobIds: string[] = [];
+  for (const account of accounts) {
+    jobIds.push(await markSyncingAndEnqueue(account));
+  }
+  return jobIds;
+}
+
+interface Paginated<T> {
+  items: T[];
   total: number;
   page: number;
   limit: number;
 }
 
-export async function listThreads(userId: string, query: ListThreadsQuery): Promise<PaginatedThreads> {
+export async function listThreads(userId: string, query: ListThreadsQuery): Promise<Paginated<unknown>> {
   const accountIds = (await EmailAccount.find({ user: userId }).select('_id')).map((a) => a._id);
 
   const filter: Record<string, unknown> = { emailAccount: { $in: accountIds } };
@@ -85,158 +112,66 @@ export async function updateThread(userId: string, threadId: string, patch: Upda
 }
 
 /**
- * Refreshes the Google access token if needed and returns an authenticated
- * Gmail client. Persists the refreshed access token (re-encrypted) so
- * subsequent syncs reuse it instead of refreshing on every call.
+ * GET /emails — reads from our MongoDB cache, not live Gmail. This is
+ * intentional: Gmail stays the source of truth (see docs/DATABASE.md), but
+ * every list/search/pagination request the product makes goes through our
+ * own indexed collection instead of the Gmail API, which is both far faster
+ * and avoids Gmail's per-user rate limits on every page load.
  */
-async function getGmailClient(account: EmailAccountDocument) {
-  const fullAccount = await EmailAccount.findById(account._id).select(
-    '+accessTokenEncrypted +refreshTokenEncrypted',
+export async function listEmails(userId: string, query: ListEmailsQuery): Promise<Paginated<EmailDocument>> {
+  const accountIds = (await EmailAccount.find({ user: userId }).select('_id')).map((a) => a._id);
+
+  const filter: Record<string, unknown> = { emailAccount: { $in: accountIds } };
+  if (query.category) filter.category = query.category;
+  if (query.threadId) filter.thread = query.threadId;
+  if (query.q) filter.subject = { $regex: query.q, $options: 'i' };
+
+  const skip = (query.page - 1) * query.limit;
+
+  const [items, total] = await Promise.all([
+    Email.find(filter).sort({ receivedAt: -1 }).skip(skip).limit(query.limit),
+    Email.countDocuments(filter),
+  ]);
+
+  return { items, total, page: query.page, limit: query.limit };
+}
+
+type EmailWithAccount = Omit<EmailDocument, 'emailAccount'> & { emailAccount: EmailAccountDocument };
+
+async function getOwnedEmail(userId: string, emailId: string): Promise<EmailWithAccount> {
+  const email = await Email.findById(emailId).populate<{ emailAccount: EmailAccountDocument }>(
+    'emailAccount',
   );
-  if (!fullAccount) throw ApiError.notFound('Email account not found');
+  if (!email || String(email.emailAccount.user) !== userId) {
+    throw ApiError.notFound('Email not found');
+  }
+  return email;
+}
 
-  const client = createOAuthClient();
-  client.setCredentials({
-    access_token: decrypt(fullAccount.accessTokenEncrypted),
-    refresh_token: decrypt(fullAccount.refreshTokenEncrypted),
-    expiry_date: fullAccount.tokenExpiresAt.getTime(),
-  });
-
-  client.on('tokens', (tokens) => {
-    void (async () => {
-      if (tokens.access_token) {
-        fullAccount.accessTokenEncrypted = encrypt(tokens.access_token);
-        if (tokens.expiry_date) fullAccount.tokenExpiresAt = new Date(tokens.expiry_date);
-        await fullAccount.save();
-      }
-    })();
-  });
-
-  return google.gmail({ version: 'v1', auth: client });
+export async function getEmailById(userId: string, emailId: string): Promise<EmailWithAccount> {
+  return getOwnedEmail(userId, emailId);
 }
 
 /**
- * Incremental Gmail sync using the stored `historyId` cursor. Falls back to
- * a bounded initial pull (most recent 50 threads) when no cursor exists yet.
- * Runs inside the BullMQ worker, not the request/response cycle.
+ * Attachment bytes are never stored in MongoDB (see docs/AUTH_AND_GMAIL.md)
+ * — only metadata is persisted during sync. A download request fetches the
+ * actual content from Gmail on demand, scoped through our own ownership
+ * check first so a user can only ever pull attachments off their own
+ * connected mailbox.
  */
-export async function performGmailSync(emailAccountId: string): Promise<void> {
-  const account = await EmailAccount.findById(emailAccountId);
-  if (!account) return;
-
-  try {
-    const gmail = await getGmailClient(account);
-
-    const messageIds: string[] = [];
-
-    if (account.historyId) {
-      const history = await gmail.users.history.list({
-        userId: 'me',
-        startHistoryId: account.historyId,
-        historyTypes: ['messageAdded'],
-      });
-      for (const record of history.data.history ?? []) {
-        for (const added of record.messagesAdded ?? []) {
-          if (added.message?.id) messageIds.push(added.message.id);
-        }
-      }
-    } else {
-      const list = await gmail.users.messages.list({ userId: 'me', maxResults: 50 });
-      for (const msg of list.data.messages ?? []) {
-        if (msg.id) messageIds.push(msg.id);
-      }
-    }
-
-    for (const messageId of messageIds) {
-      await syncSingleMessage(gmail, account, messageId);
-    }
-
-    const profile = await gmail.users.getProfile({ userId: 'me' });
-    account.historyId = profile.data.historyId ?? account.historyId;
-    account.syncStatus = 'idle';
-    account.lastSyncedAt = new Date();
-    await account.save();
-  } catch (err) {
-    logger.error(`Gmail sync failed for account ${emailAccountId}: ${(err as Error).message}`);
-    account.syncStatus = 'error';
-    await account.save();
-    throw err;
-  }
-}
-
-function header(headers: { name?: string | null; value?: string | null }[], name: string): string {
-  return headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value ?? '';
-}
-
-async function syncSingleMessage(
-  gmail: ReturnType<typeof google.gmail>,
-  account: EmailAccountDocument,
-  messageId: string,
-): Promise<void> {
-  const { data: message } = await gmail.users.messages.get({
-    userId: 'me',
-    id: messageId,
-    format: 'full',
-  });
-
-  const headers = message.payload?.headers ?? [];
-  const bodyHtmlRaw = extractBody(message.payload, 'text/html');
-  const bodyTextRaw = extractBody(message.payload, 'text/plain');
-
-  const thread = await Thread.findOneAndUpdate(
-    { emailAccount: account._id, providerThreadId: message.threadId },
-    {
-      $setOnInsert: {
-        emailAccount: account._id,
-        providerThreadId: message.threadId,
-      },
-      $set: {
-        subject: header(headers, 'Subject'),
-        lastMessageAt: new Date(Number(message.internalDate ?? Date.now())),
-      },
-      $addToSet: { participants: header(headers, 'From') },
-    },
-    { upsert: true, new: true },
-  );
-
-  await Email.findOneAndUpdate(
-    { emailAccount: account._id, providerMessageId: message.id },
-    {
-      thread: thread._id,
-      emailAccount: account._id,
-      providerMessageId: message.id,
-      from: header(headers, 'From'),
-      to: header(headers, 'To').split(',').map((s) => s.trim()).filter(Boolean),
-      cc: header(headers, 'Cc').split(',').map((s) => s.trim()).filter(Boolean),
-      subject: header(headers, 'Subject'),
-      snippet: message.snippet ?? '',
-      bodyText: bodyTextRaw,
-      bodyHtml: sanitizeHtml(bodyHtmlRaw, {
-        allowedTags: sanitizeHtml.defaults.allowedTags.filter((t) => t !== 'script'),
-      }),
-      receivedAt: new Date(Number(message.internalDate ?? Date.now())),
-    },
-    { upsert: true },
-  );
-}
-
-interface GmailMessagePart {
-  mimeType?: string | null;
-  body?: { data?: string | null } | null;
-  parts?: GmailMessagePart[] | null;
-}
-
-function extractBody(payload: GmailMessagePart | undefined, mimeType: 'text/plain' | 'text/html'): string {
-  if (!payload) return '';
-
-  if (payload.mimeType === mimeType && payload.body?.data) {
-    return Buffer.from(payload.body.data, 'base64url').toString('utf8');
+export async function getEmailAttachment(
+  userId: string,
+  emailId: string,
+  attachmentId: string,
+): Promise<{ data: Buffer; filename: string; mimeType: string }> {
+  const email = await getOwnedEmail(userId, emailId);
+  const meta = email.attachments.find((a) => a.attachmentId === attachmentId);
+  if (!meta) {
+    throw ApiError.notFound('Attachment not found');
   }
 
-  for (const part of payload.parts ?? []) {
-    const result = extractBody(part, mimeType);
-    if (result) return result;
-  }
+  const { gmail } = await getAuthenticatedGmailClient(email.emailAccount.id as string);
+  const data = await fetchAttachmentFromGmail(gmail, email.providerMessageId, attachmentId);
 
-  return '';
+  return { data, filename: meta.filename, mimeType: meta.mimeType };
 }

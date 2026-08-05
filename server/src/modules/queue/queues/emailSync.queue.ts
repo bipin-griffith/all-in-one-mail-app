@@ -22,7 +22,9 @@ export async function enqueueEmailSync(emailAccountId: string): Promise<string> 
     'sync',
     { emailAccountId },
     // De-dupe: only one pending sync per account at a time.
-    { jobId: `sync:${emailAccountId}` },
+    // BullMQ rejects custom job ids containing ':' (it's used internally as
+    // a Redis key delimiter), so this must be '-', not ':'.
+    { jobId: `sync-${emailAccountId}` },
   );
   return job.id ?? job.name;
 }

@@ -18,3 +18,9 @@ export const loginSchema = z
   .strict();
 
 export type LoginInput = z.infer<typeof loginSchema>;
+
+export const sessionIdParamSchema = z
+  .object({
+    id: z.string().regex(/^[a-f0-9]{24}$/i, 'Invalid session id'),
+  })
+  .strict();

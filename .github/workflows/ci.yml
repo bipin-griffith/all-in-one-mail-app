@@ -17,6 +17,19 @@ jobs:
     defaults:
       run:
         working-directory: server
+    # A live Redis is required: BullMQ job-id validation (see
+    # emailSync.queue.test.ts) and the rate limiter's RedisStore only
+    # surface real errors against an actual connection, not a mock.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 

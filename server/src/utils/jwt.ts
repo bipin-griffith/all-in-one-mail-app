@@ -8,6 +8,7 @@ export interface AccessTokenPayload {
   sub: string; // user id
   email: string;
   role: 'user' | 'admin';
+  sid: string; // Session document id — lets any authenticated request identify "this device"
 }
 
 export function signAccessToken(payload: AccessTokenPayload): string {
@@ -21,14 +22,19 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
 }
 
 export interface RefreshTokenPayload {
-  sub: string;
-  tokenId: string; // random id, allows single-token revocation without invalidating the whole secret
+  sub: string; // user id
+  sid: string; // Session document id — scopes the token to one device/session
 }
 
-export function signRefreshToken(payload: RefreshTokenPayload): string {
-  return jwt.sign(payload, env.JWT_REFRESH_SECRET, {
+export function signRefreshToken(payload: RefreshTokenPayload): { token: string; expiresAt: Date } {
+  const token = jwt.sign(payload, env.JWT_REFRESH_SECRET, {
     expiresIn: env.JWT_REFRESH_EXPIRES_IN,
   } as SignOptions);
+
+  // Decode rather than re-parsing JWT_REFRESH_EXPIRES_IN ourselves, so the
+  // stored expiry can never drift from what's actually encoded in the token.
+  const { exp } = jwt.decode(token) as { exp: number };
+  return { token, expiresAt: new Date(exp * 1000) };
 }
 
 export function verifyRefreshToken(token: string): RefreshTokenPayload {
