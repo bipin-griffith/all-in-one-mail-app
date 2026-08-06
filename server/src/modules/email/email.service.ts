@@ -123,6 +123,9 @@ export async function listEmails(userId: string, query: ListEmailsQuery): Promis
 
   const filter: Record<string, unknown> = { emailAccount: { $in: accountIds } };
   if (query.category) filter.category = query.category;
+  if (query.aiCategory) filter.aiCategory = query.aiCategory;
+  if (query.aiPriority) filter.aiPriority = query.aiPriority;
+  if (query.aiAction) filter.aiAction = query.aiAction;
   if (query.threadId) filter.thread = query.threadId;
   if (query.q) filter.subject = { $regex: query.q, $options: 'i' };
 

@@ -66,14 +66,22 @@ detected) is explained in [`docs/AUTH_AND_GMAIL.md`](AUTH_AND_GMAIL.md).
 ### Emails — `/api/v1/emails`
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| GET | `/` | private | Paginated, individual-message list (`?page=&limit=&category=&threadId=&q=`) — `category` is one of `inbox\|sent\|drafts\|promotions\|social\|other` |
-| GET | `/:id` | private | Single email, including attachment metadata |
+| GET | `/` | private | Paginated, individual-message list (`?page=&limit=&category=&aiCategory=&aiPriority=&aiAction=&threadId=&q=`) |
+| GET | `/:id` | private | Single email, including attachment metadata and AI analysis fields |
 | GET | `/:id/attachments/:attachmentId` | private | Downloads attachment bytes, fetched from Gmail on demand (never stored in MongoDB — see AUTH_AND_GMAIL.md §2.6) |
 
 `GET /emails` and `GET /threads` overlap in purpose but not in shape: threads
 group messages into conversations (what the inbox UI renders), `GET /emails`
 is the flat, per-message view — useful for category-filtered views like
 "show me every promotional email" without the thread grouping.
+
+`category` is Gmail-label-derived (`inbox|sent|drafts|promotions|social|other`).
+`aiCategory` (`jobs|shopping|finance|bills|marketing|personal|government|travel|university|spam`),
+`aiPriority` (`high|medium|low`), and `aiAction`
+(`reply|ignore|archive|reminder|follow_up`) are produced automatically by the
+AI processing pipeline for every new email — see
+[`docs/AI_PIPELINE.md`](AI_PIPELINE.md). There's no endpoint to trigger this
+pipeline manually; it always runs as a side effect of sync.
 
 ### AI — `/api/v1/ai`
 | Method | Path | Auth | Description |

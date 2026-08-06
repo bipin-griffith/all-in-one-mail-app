@@ -11,6 +11,34 @@ export interface EmailAttachment {
   attachmentId: string;
 }
 
+/**
+ * Content-based classification produced by the AI processing pipeline
+ * (server/src/modules/ai/emailProcessing.service.ts) — distinct from the
+ * Gmail-label-derived `category` above, which describes *where* Gmail filed
+ * the message (inbox/sent/promotions/...), not what it's about.
+ */
+export const EMAIL_AI_CATEGORIES = [
+  'jobs',
+  'shopping',
+  'finance',
+  'bills',
+  'marketing',
+  'personal',
+  'government',
+  'travel',
+  'university',
+  'spam',
+] as const;
+export type EmailAiCategory = (typeof EMAIL_AI_CATEGORIES)[number];
+
+export const EMAIL_AI_PRIORITIES = ['high', 'medium', 'low'] as const;
+export type EmailAiPriority = (typeof EMAIL_AI_PRIORITIES)[number];
+
+export const EMAIL_AI_ACTIONS = ['reply', 'ignore', 'archive', 'reminder', 'follow_up'] as const;
+export type EmailAiAction = (typeof EMAIL_AI_ACTIONS)[number];
+
+export type EmailAiStatus = 'pending' | 'processing' | 'completed' | 'failed';
+
 export interface EmailDocument extends Document {
   thread: Types.ObjectId;
   emailAccount: Types.ObjectId;
@@ -29,6 +57,18 @@ export interface EmailDocument extends Document {
   category: EmailCategory;
   labelIds: string[];
   attachments: EmailAttachment[];
+
+  /** Plain-text, tag-free rendering of the message body — see textExtraction.service.ts. */
+  cleanText: string;
+  aiSummary: string | null;
+  aiCategory: EmailAiCategory | null;
+  aiPriority: EmailAiPriority | null;
+  aiAction: EmailAiAction | null;
+  aiStatus: EmailAiStatus;
+  aiError: string | null;
+  aiProcessedAt: Date | null;
+  aiTokens: { prompt: number; completion: number };
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -55,7 +95,7 @@ const emailSchema = new Schema<EmailDocument>(
     subject: { type: String, default: '' },
     snippet: { type: String, default: '' },
     bodyText: { type: String, default: '' },
-    // Sanitized server-side (sanitize-html) before storage - see gmail/emailSync.service.ts
+    // Sanitized server-side (sanitize-html) before storage - see gmail/gmail.mapper.ts
     bodyHtml: { type: String, default: '' },
     receivedAt: { type: Date, required: true, index: true },
     isRead: { type: Boolean, default: false },
@@ -68,6 +108,30 @@ const emailSchema = new Schema<EmailDocument>(
     },
     labelIds: { type: [String], default: [] },
     attachments: { type: [attachmentSchema], default: [] },
+
+    cleanText: { type: String, default: '' },
+    aiSummary: { type: String, default: null },
+    // No `enum` constraint on the three AI-derived fields below: they're set
+    // from an LLM response that's already defensively validated/clamped in
+    // application code (see emailProcessing.service.ts) before it ever
+    // reaches Mongoose, so a second enforcement layer here would be
+    // redundant. `category` above stays enum-constrained because it's
+    // always set by our own deterministic derivation, never an LLM guess.
+    aiCategory: { type: String, default: null, index: true },
+    aiPriority: { type: String, default: null },
+    aiAction: { type: String, default: null },
+    aiStatus: {
+      type: String,
+      enum: ['pending', 'processing', 'completed', 'failed'],
+      default: 'pending',
+      index: true,
+    },
+    aiError: { type: String, default: null },
+    aiProcessedAt: { type: Date, default: null },
+    aiTokens: {
+      prompt: { type: Number, default: 0 },
+      completion: { type: Number, default: 0 },
+    },
   },
   { timestamps: true },
 );
@@ -75,5 +139,7 @@ const emailSchema = new Schema<EmailDocument>(
 emailSchema.index({ emailAccount: 1, providerMessageId: 1 }, { unique: true });
 // Powers GET /emails?category=... pagination sorted by recency.
 emailSchema.index({ emailAccount: 1, category: 1, receivedAt: -1 });
+// Powers GET /emails?aiCategory=...&aiPriority=... pagination sorted by recency.
+emailSchema.index({ emailAccount: 1, aiCategory: 1, aiPriority: 1, receivedAt: -1 });
 
 export const Email = model<EmailDocument>('Email', emailSchema);

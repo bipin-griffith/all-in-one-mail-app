@@ -1,3 +1,4 @@
+import { isAxiosError } from 'axios';
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -13,11 +14,21 @@ import { useAiJob } from '../hooks/useAiJob';
  */
 export function AiActionsPanel({ threadId }: { threadId: string }) {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [enqueueError, setEnqueueError] = useState<string | null>(null);
   const { data: job, isFetching } = useAiJob(activeJobId);
 
   async function trigger(fn: (id: string) => Promise<{ jobId: string }>): Promise<void> {
-    const { jobId } = await fn(threadId);
-    setActiveJobId(jobId);
+    setEnqueueError(null);
+    try {
+      const { jobId } = await fn(threadId);
+      setActiveJobId(jobId);
+    } catch (err) {
+      setEnqueueError(
+        isAxiosError(err) && err.response?.status === 429
+          ? 'Too many requests — wait a moment and try again.'
+          : 'Could not start this action. Please try again.',
+      );
+    }
   }
 
   const isBusy = isFetching && job?.status !== 'completed' && job?.status !== 'failed';
@@ -39,6 +50,8 @@ export function AiActionsPanel({ threadId }: { threadId: string }) {
             Classify
           </Button>
         </div>
+
+        {enqueueError && <p className="text-sm text-destructive">{enqueueError}</p>}
 
         {activeJobId && (
           <div className="rounded-md border bg-muted/30 p-3 text-sm">

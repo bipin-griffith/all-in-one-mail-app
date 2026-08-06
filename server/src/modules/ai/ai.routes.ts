@@ -8,11 +8,21 @@ import * as aiController from './ai.controller';
 import { classifySchema, draftReplySchema, jobIdParamSchema, summarizeSchema } from './ai.validation';
 
 const router = Router();
-router.use(authenticate, aiRateLimiter);
+router.use(authenticate);
 
-router.post('/summarize', validate({ body: summarizeSchema }), aiController.summarize);
-router.post('/draft-reply', validate({ body: draftReplySchema }), aiController.draftReply);
-router.post('/classify', validate({ body: classifySchema }), aiController.classify);
+// aiRateLimiter only guards the endpoints that actually trigger an OpenAI
+// call — GET /jobs/:jobId is a cheap Mongo read that the client polls every
+// ~1.5s while a job is in flight (see client's useAiJob hook), which would
+// blow through a 10-req/min limit within seconds if it shared the same
+// bucket as the action-triggering routes below.
+router.post('/summarize', aiRateLimiter, validate({ body: summarizeSchema }), aiController.summarize);
+router.post(
+  '/draft-reply',
+  aiRateLimiter,
+  validate({ body: draftReplySchema }),
+  aiController.draftReply,
+);
+router.post('/classify', aiRateLimiter, validate({ body: classifySchema }), aiController.classify);
 router.get('/jobs/:jobId', validate({ params: jobIdParamSchema }), aiController.getJob);
 
 export default router;

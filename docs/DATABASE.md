@@ -92,9 +92,24 @@ Individual messages within a thread.
 | `category` | `'inbox'\|'sent'\|'drafts'\|'promotions'\|'social'\|'other'` | single primary category, derived from `labelIds` — see AUTH_AND_GMAIL.md §2.5 |
 | `labelIds` | string[] | raw Gmail label ids, uncollapsed (a message can have several) |
 | `attachments` | `{ filename, mimeType, size, attachmentId }[]` | metadata only — bytes are never stored, fetched from Gmail on demand (see AUTH_AND_GMAIL.md §2.6) |
+| `cleanText` | string | plain, tag-free readable text extracted from the body — see `docs/AI_PIPELINE.md` §6 |
+| `aiSummary` | string \| null | 1-2 sentence AI-generated summary |
+| `aiCategory` | `'jobs'\|'shopping'\|'finance'\|'bills'\|'marketing'\|'personal'\|'government'\|'travel'\|'university'\|'spam'` \| null | content-based AI classification — distinct from `category` above, see AI_PIPELINE.md |
+| `aiPriority` | `'high'\|'medium'\|'low'` \| null | AI-detected priority |
+| `aiAction` | `'reply'\|'ignore'\|'archive'\|'reminder'\|'follow_up'` \| null | AI-detected required action |
+| `aiStatus` | `'pending'\|'processing'\|'completed'\|'failed'` | pipeline status for this email |
+| `aiError` | string \| null | populated when `aiStatus` is `'failed'` |
+| `aiProcessedAt` | Date \| null | |
+| `aiTokens` | `{ prompt: number, completion: number }` | OpenAI token usage for this email's analysis call |
 
 ### `aiinteractions`
-Audit log + cache of every AI operation — doubles as usage metering.
+Audit log + cache of **user-initiated** AI operations (`POST /ai/summarize`
+etc.) — doubles as usage metering against the per-plan quota. This is
+distinct from the automatic per-email pipeline (`docs/AI_PIPELINE.md`),
+whose results live directly on the `emails` collection above: that pipeline
+runs on every new email regardless of plan quota, so mixing its (potentially
+high-volume) results into this audit trail would conflate two different
+concepts — see AI_PIPELINE.md §5 for the quota reasoning.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -119,6 +134,7 @@ Audit log + cache of every AI operation — doubles as usage metering.
 - `threads.{emailAccount, lastMessageAt}` — compound index, powers inbox pagination sorted by recency.
 - `emails.{emailAccount, providerMessageId}` — compound unique (idempotent sync — this is what actually prevents duplicate emails, see AUTH_AND_GMAIL.md §2.4).
 - `emails.{emailAccount, category, receivedAt}` — compound index, powers `GET /emails?category=...` pagination sorted by recency.
+- `emails.{emailAccount, aiCategory, aiPriority, receivedAt}` — compound index, powers `GET /emails?aiCategory=...&aiPriority=...` pagination.
 - `aiinteractions.{user, createdAt}` — compound index, powers usage-quota queries and history views.
 
 ## Design decisions

@@ -36,6 +36,7 @@ Or fully containerized: `docker compose up --build`.
 - [`docs/DATABASE.md`](docs/DATABASE.md) — collections, indexes, design decisions
 - [`docs/API.md`](docs/API.md) — endpoint reference, response envelope
 - [`docs/AUTH_AND_GMAIL.md`](docs/AUTH_AND_GMAIL.md) — auth (sessions, JWT rotation) and Gmail sync design decisions
+- [`docs/AI_PIPELINE.md`](docs/AI_PIPELINE.md) — automatic per-email AI processing pipeline design decisions
 - [`docs/CODING_STANDARDS.md`](docs/CODING_STANDARDS.md) — layering, naming, testing
 - [`docs/SECURITY.md`](docs/SECURITY.md) — authN/Z, secrets, transport, dependency hygiene
 - [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — EC2 + Atlas setup, CI/CD flow, rollback

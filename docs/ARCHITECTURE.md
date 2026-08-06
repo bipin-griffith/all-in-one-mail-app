@@ -53,6 +53,27 @@ The backend is organized as `modules/<feature>/{routes,controller,service,valida
 
 This pattern is identical for `draft-reply`, `classify`, and `bulk-summarize` — see `server/src/modules/ai`.
 
+## Automatic email processing pipeline
+
+Separate from the user-triggered AI job lifecycle above, every newly synced
+email is *automatically* run through an AI pipeline — no client request
+involved:
+
+1. `emailSync.service.ts` persists a Gmail message. If it's genuinely new
+   (not a re-sync of something already stored), it enqueues a job on the
+   `email-ai-processing` BullMQ queue.
+2. The worker picks it up, cleans/extracts the readable text, makes one
+   OpenAI call (JSON mode) to get summary + category + priority + action,
+   and writes the results directly onto that `Email` document.
+3. The client sees the results simply by reading `GET /emails/:id` (or the
+   list endpoint) once processing completes — no polling protocol needed,
+   since the data lands on a resource the client already fetches, rather
+   than a job the client has to track.
+
+Full design rationale (why one OpenAI call instead of four, why this pipeline
+isn't gated by the same AI usage quota as user-triggered actions, retry
+policy): [`docs/AI_PIPELINE.md`](AI_PIPELINE.md).
+
 ## Scaling notes
 
 - Stateless API containers behind an ALB — horizontal scale by container count.

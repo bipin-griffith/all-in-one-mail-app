@@ -2,6 +2,7 @@ import { connectDB } from '../../config/db';
 import { logger } from '../../config/logger';
 
 import { createAiWorker } from './workers/ai.worker';
+import { createEmailProcessingWorker } from './workers/emailProcessing.worker';
 import { createEmailSyncWorker } from './workers/emailSync.worker';
 
 /**
@@ -14,12 +15,13 @@ async function bootstrap(): Promise<void> {
 
   const emailSyncWorker = createEmailSyncWorker();
   const aiWorker = createAiWorker();
+  const emailProcessingWorker = createEmailProcessingWorker();
 
-  logger.info('Worker process started (email-sync, ai-processing)');
+  logger.info('Worker process started (email-sync, ai-processing, email-ai-processing)');
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info(`${signal} received, shutting down worker gracefully`);
-    await Promise.all([emailSyncWorker.close(), aiWorker.close()]);
+    await Promise.all([emailSyncWorker.close(), aiWorker.close(), emailProcessingWorker.close()]);
     process.exit(0);
   };
 

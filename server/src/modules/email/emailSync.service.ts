@@ -4,6 +4,7 @@ import { logger } from '../../config/logger';
 import { Email } from '../../models/email.model';
 import type { EmailAccountDocument } from '../../models/emailAccount.model';
 import { Thread } from '../../models/thread.model';
+import { enqueueEmailProcessing } from '../queue/queues/emailProcessing.queue';
 
 import { getAuthenticatedGmailClient } from './gmail/gmail.client';
 import { normalizeMessage } from './gmail/gmail.mapper';
@@ -21,6 +22,13 @@ const BOOTSTRAP_PAGE_SIZE = 50;
  * CATEGORY_PROMOTIONS during a bootstrap sync) safely converges to one
  * document instead of creating a duplicate. This is the single mechanism
  * that satisfies "avoid duplicate emails" everywhere in the sync pipeline.
+ *
+ * Whether the message is genuinely new is checked explicitly *before* the
+ * upsert (rather than inferred from the upsert's result) — the AI
+ * processing pipeline (docs/AI_PIPELINE.md) must only be triggered for
+ * messages that are truly new, never for a message re-synced because e.g.
+ * its read state changed, or because it showed up in more than one
+ * category list in the same bootstrap run.
  */
 async function persistMessage(
   account: EmailAccountDocument,
@@ -39,7 +47,12 @@ async function persistMessage(
     { upsert: true, new: true },
   );
 
-  await Email.findOneAndUpdate(
+  const alreadyExists = await Email.exists({
+    emailAccount: account._id,
+    providerMessageId: normalized.providerMessageId,
+  });
+
+  const email = await Email.findOneAndUpdate(
     { emailAccount: account._id, providerMessageId: normalized.providerMessageId },
     {
       thread: thread._id,
@@ -59,8 +72,12 @@ async function persistMessage(
       labelIds: normalized.labelIds,
       attachments: normalized.attachments,
     },
-    { upsert: true },
+    { upsert: true, new: true },
   );
+
+  if (!alreadyExists) {
+    await enqueueEmailProcessing(email.id as string);
+  }
 }
 
 /**

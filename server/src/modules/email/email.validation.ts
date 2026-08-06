@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { EMAIL_AI_ACTIONS, EMAIL_AI_CATEGORIES, EMAIL_AI_PRIORITIES } from '../../models/email.model';
+
 export const listThreadsQuerySchema = z
   .object({
     page: z.coerce.number().int().positive().default(1),
@@ -40,6 +42,11 @@ export const listEmailsQuerySchema = z
     page: z.coerce.number().int().positive().default(1),
     limit: z.coerce.number().int().positive().max(100).default(20),
     category: z.enum(['inbox', 'sent', 'drafts', 'promotions', 'social', 'other']).optional(),
+    // AI-derived filters (docs/AI_PIPELINE.md) — distinct from `category` above,
+    // which is Gmail-label-derived, not content-based.
+    aiCategory: z.enum(EMAIL_AI_CATEGORIES).optional(),
+    aiPriority: z.enum(EMAIL_AI_PRIORITIES).optional(),
+    aiAction: z.enum(EMAIL_AI_ACTIONS).optional(),
     threadId: objectId.optional(),
     q: z.string().trim().optional(),
   })
