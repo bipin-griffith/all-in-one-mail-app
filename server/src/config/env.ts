@@ -27,6 +27,13 @@ const envSchema = z.object({
 
   OPENAI_API_KEY: z.string().min(1),
   OPENAI_MODEL: z.string().default('gpt-4o-mini'),
+  OPENAI_EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
+
+  // Set to 'true' once the Atlas Search vector index (see
+  // server/scripts/create-vector-index.ts) exists on the target cluster.
+  // Community/local MongoDB (e.g. the docker-compose `mongo` service) does
+  // not support $vectorSearch at all — see docs/RAG_AND_DASHBOARDS.md.
+  MONGO_ATLAS_VECTOR_SEARCH_ENABLED: z.coerce.boolean().default(false),
 
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(5),
 });

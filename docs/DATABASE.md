@@ -101,6 +101,9 @@ Individual messages within a thread.
 | `aiError` | string \| null | populated when `aiStatus` is `'failed'` |
 | `aiProcessedAt` | Date \| null | |
 | `aiTokens` | `{ prompt: number, completion: number }` | OpenAI token usage for this email's analysis call |
+| `embedding` | number[] | `select: false` — vector embedding for semantic search/RAG, see `docs/RAG_AND_DASHBOARDS.md`. Never serialized in API responses. |
+| `embeddingModel` | string \| null | which OpenAI embedding model produced `embedding` |
+| `embeddingGeneratedAt` | Date \| null | |
 
 ### `aiinteractions`
 Audit log + cache of **user-initiated** AI operations (`POST /ai/summarize`
@@ -135,7 +138,15 @@ concepts — see AI_PIPELINE.md §5 for the quota reasoning.
 - `emails.{emailAccount, providerMessageId}` — compound unique (idempotent sync — this is what actually prevents duplicate emails, see AUTH_AND_GMAIL.md §2.4).
 - `emails.{emailAccount, category, receivedAt}` — compound index, powers `GET /emails?category=...` pagination sorted by recency.
 - `emails.{emailAccount, aiCategory, aiPriority, receivedAt}` — compound index, powers `GET /emails?aiCategory=...&aiPriority=...` pagination.
+- `emails.{emailAccount, embeddingGeneratedAt}` — supports the local brute-force vector search fallback's candidate query.
 - `aiinteractions.{user, createdAt}` — compound index, powers usage-quota queries and history views.
+
+**Not a regular index:** `emails.embedding` is searched via a separate
+**Atlas Search vector index** (`email_vector_index`, type `vectorSearch`),
+created by `scripts/create-vector-index.ts` — this is a fundamentally
+different index type (approximate-nearest-neighbor over a vector field)
+that a normal `schema.index()`/`createIndex()` call cannot create, and that
+only exists on MongoDB Atlas. See `docs/RAG_AND_DASHBOARDS.md` §1.
 
 ## Design decisions
 

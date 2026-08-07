@@ -74,6 +74,25 @@ Full design rationale (why one OpenAI call instead of four, why this pipeline
 isn't gated by the same AI usage quota as user-triggered actions, retry
 policy): [`docs/AI_PIPELINE.md`](AI_PIPELINE.md).
 
+## RAG: semantic search & chat
+
+The same pipeline above also generates a vector embedding for every new
+email (in parallel with the summary/category/priority/action call), stored
+on the `Email` document. `POST /api/v1/chat` uses those embeddings for
+retrieval-augmented generation: embed the incoming question, vector-search
+the user's own emails for the most relevant ones, send that (compact,
+summary-based) context to OpenAI, return a grounded answer with cited
+sources. Unlike every other AI operation in this system, `/chat` responds
+synchronously rather than through the job/poll pattern — it's an
+interactive request, not a batch operation.
+
+Semantic search itself requires MongoDB **Atlas** Vector Search
+(`$vectorSearch`) in production; local/community MongoDB (this project's
+dev-time Docker `mongo` service) can't run it, so a brute-force fallback
+exists for local development. Full rationale, setup steps, and the
+dashboards built on the same data:
+[`docs/RAG_AND_DASHBOARDS.md`](RAG_AND_DASHBOARDS.md).
+
 ## Scaling notes
 
 - Stateless API containers behind an ALB — horizontal scale by container count.

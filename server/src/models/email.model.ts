@@ -69,6 +69,16 @@ export interface EmailDocument extends Document {
   aiProcessedAt: Date | null;
   aiTokens: { prompt: number; completion: number };
 
+  /**
+   * Vector embedding of this email's content, used for semantic search / RAG
+   * (docs/RAG_AND_DASHBOARDS.md). `select: false` — this is a ~1536-number
+   * array (~12KB as JSON) that no API response should ever serialize; it's
+   * only pulled in explicitly by vectorSearch.service.ts's local fallback.
+   */
+  embedding: number[];
+  embeddingModel: string | null;
+  embeddingGeneratedAt: Date | null;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -132,8 +142,24 @@ const emailSchema = new Schema<EmailDocument>(
       prompt: { type: Number, default: 0 },
       completion: { type: Number, default: 0 },
     },
+
+    embedding: { type: [Number], default: [], select: false },
+    embeddingModel: { type: String, default: null },
+    embeddingGeneratedAt: { type: Date, default: null },
   },
-  { timestamps: true },
+  {
+    timestamps: true,
+    toJSON: {
+      transform: (_doc, ret) => {
+        // Defense in depth on top of `select: false` above — this field
+        // must never reach a JSON response even if a future query
+        // explicitly re-selects it.
+        Reflect.deleteProperty(ret, 'embedding');
+        Reflect.deleteProperty(ret, '__v');
+        return ret;
+      },
+    },
+  },
 );
 
 emailSchema.index({ emailAccount: 1, providerMessageId: 1 }, { unique: true });
@@ -141,5 +167,8 @@ emailSchema.index({ emailAccount: 1, providerMessageId: 1 }, { unique: true });
 emailSchema.index({ emailAccount: 1, category: 1, receivedAt: -1 });
 // Powers GET /emails?aiCategory=...&aiPriority=... pagination sorted by recency.
 emailSchema.index({ emailAccount: 1, aiCategory: 1, aiPriority: 1, receivedAt: -1 });
+// Used by vectorSearch.service.ts's local (non-Atlas) brute-force fallback
+// to cheaply find candidate emails that actually have an embedding yet.
+emailSchema.index({ emailAccount: 1, embeddingGeneratedAt: -1 });
 
 export const Email = model<EmailDocument>('Email', emailSchema);

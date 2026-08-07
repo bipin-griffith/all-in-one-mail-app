@@ -4,6 +4,7 @@ import { extractReadableText } from '../email/textExtraction.service';
 
 import { buildEmailAnalysisPrompt } from './emailAnalysis.prompt';
 import { emailAnalysisResponseSchema, type EmailAnalysisResult } from './emailAnalysis.schema';
+import { generateEmbedding } from './embedding.service';
 import { completeJson } from './openai.client';
 
 const FALLBACK_ANALYSIS: EmailAnalysisResult = {
@@ -40,10 +41,13 @@ function parseAnalysisResponse(raw: string, emailId: string): EmailAnalysisResul
 
 /**
  * The AI processing pipeline for a single email (docs/AI_PIPELINE.md):
- * clean HTML → extract readable text → summarize → categorize → prioritize
- * → detect required action, all via one OpenAI call. Called exclusively
- * from the BullMQ worker (modules/queue/workers/emailProcessing.worker.ts),
- * never inline during sync — see docs/ARCHITECTURE.md's job lifecycle.
+ * clean HTML → extract readable text → [summarize/categorize/prioritize/
+ * detect action] + [generate embedding for RAG, docs/RAG_AND_DASHBOARDS.md]
+ * — the two OpenAI calls run in parallel since they're independent (both
+ * only depend on the already-extracted `cleanText`), not sequential. Called
+ * exclusively from the BullMQ worker
+ * (modules/queue/workers/emailProcessing.worker.ts), never inline during
+ * sync — see docs/ARCHITECTURE.md's job lifecycle.
  */
 export async function processEmail(emailId: string): Promise<void> {
   const email = await Email.findById(emailId);
@@ -65,7 +69,17 @@ export async function processEmail(emailId: string): Promise<void> {
       bodyText: cleanText || email.snippet,
     });
 
-    const { content, promptTokens, completionTokens } = await completeJson(prompt.system, prompt.user);
+    // The embedding is generated from subject + body together (not body
+    // alone) so semantic search can match on sender/subject-only signals
+    // too — e.g. "Amazon invoices" should match on the sender/subject even
+    // when the body text itself never says the word "invoice".
+    const embeddingInput = `${email.subject}\n\n${cleanText || email.snippet}`;
+
+    const [{ content, promptTokens, completionTokens }, embeddingResult] = await Promise.all([
+      completeJson(prompt.system, prompt.user),
+      generateEmbedding(embeddingInput),
+    ]);
+
     const analysis = parseAnalysisResponse(content, emailId);
 
     email.aiSummary = analysis.summary;
@@ -76,10 +90,15 @@ export async function processEmail(emailId: string): Promise<void> {
     email.aiStatus = 'completed';
     email.aiProcessedAt = new Date();
     email.aiError = null;
+
+    email.embedding = embeddingResult.embedding;
+    email.embeddingModel = embeddingResult.model;
+    email.embeddingGeneratedAt = new Date();
+
     await email.save();
 
     logger.info(
-      `[ai-processing] email ${emailId} completed: category=${analysis.category} priority=${analysis.priority} action=${analysis.action} tokens=${promptTokens}+${completionTokens}`,
+      `[ai-processing] email ${emailId} completed: category=${analysis.category} priority=${analysis.priority} action=${analysis.action} tokens=${promptTokens}+${completionTokens}+${embeddingResult.tokens}(embedding)`,
     );
   } catch (err) {
     const message = (err as Error).message;

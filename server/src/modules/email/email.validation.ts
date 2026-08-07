@@ -47,6 +47,16 @@ export const listEmailsQuerySchema = z
     aiCategory: z.enum(EMAIL_AI_CATEGORIES).optional(),
     aiPriority: z.enum(EMAIL_AI_PRIORITIES).optional(),
     aiAction: z.enum(EMAIL_AI_ACTIONS).optional(),
+    // Backs the "Unread Emails" dashboard — GET /emails?isRead=false — reusing
+    // this list endpoint rather than a dedicated dashboard route.
+    // NOTE: `z.coerce.boolean()` would be wrong here — Boolean("false") is
+    // `true` in JS, so a naive coercion would make `?isRead=false` match
+    // every email instead of only unread ones. Query params are always
+    // strings, so the mapping has to be explicit.
+    isRead: z
+      .enum(['true', 'false'])
+      .optional()
+      .transform((v) => (v === undefined ? undefined : v === 'true')),
     threadId: objectId.optional(),
     q: z.string().trim().optional(),
   })

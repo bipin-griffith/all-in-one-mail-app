@@ -28,9 +28,28 @@ export const authRateLimiter = buildLimiter({
   prefix: 'rl:auth:',
 });
 
-/** Limiter for AI endpoints — protects against OpenAI cost abuse, independent of plan quota. */
+/**
+ * Limiter for AI endpoints — protects against OpenAI cost abuse, independent
+ * of plan quota. Deliberately scoped only to the action-triggering routes
+ * (POST /ai/summarize etc.), never to GET /ai/jobs/:jobId — that endpoint is
+ * polled every ~1.5s by the client while a job is in flight, which would
+ * exhaust this same budget in seconds if it shared the bucket. See
+ * ai.routes.ts.
+ */
 export const aiRateLimiter = buildLimiter({
   windowMs: 60 * 1000,
   max: 10,
   prefix: 'rl:ai:',
+});
+
+/**
+ * Limiter for POST /chat — each request costs two OpenAI calls (an
+ * embedding + a chat completion), same cost class as the AI action routes,
+ * so it gets its own bucket at the same rate rather than sharing (or
+ * omitting) one.
+ */
+export const chatRateLimiter = buildLimiter({
+  windowMs: 60 * 1000,
+  max: 10,
+  prefix: 'rl:chat:',
 });

@@ -1,5 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 
+import ChatPage from '@/pages/ChatPage';
+import DashboardPage from '@/pages/DashboardPage';
 import InboxPage from '@/pages/InboxPage';
 import LoginPage from '@/pages/LoginPage';
 import OAuthCallbackPage from '@/pages/OAuthCallbackPage';
@@ -29,6 +31,22 @@ export function AppRoutes() {
         element={
           <ProtectedRoute>
             <ThreadPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard"
+        element={
+          <ProtectedRoute>
+            <DashboardPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/chat"
+        element={
+          <ProtectedRoute>
+            <ChatPage />
           </ProtectedRoute>
         }
       />

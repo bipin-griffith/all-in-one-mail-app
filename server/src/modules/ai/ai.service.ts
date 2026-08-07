@@ -1,38 +1,11 @@
 import { AiInteraction, type AiInteractionDocument, type AiInteractionType } from '../../models/aiInteraction.model';
 import { Email } from '../../models/email.model';
 import { Thread, type ThreadDocument } from '../../models/thread.model';
-import { User } from '../../models/user.model';
 import { ApiError } from '../../utils/ApiError';
 import { enqueueAiJob } from '../queue/queues/ai.queue';
 
+import { assertQuotaAndIncrement } from './aiUsage.service';
 import { completeChat } from './openai.client';
-
-/** Monthly AI-operation quota per plan — enforced independently of rate limiting. */
-const PLAN_QUOTAS: Record<'free' | 'pro', number> = {
-  free: 50,
-  pro: 2000,
-};
-
-const QUOTA_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-
-async function assertQuotaAndIncrement(userId: string): Promise<void> {
-  const user = await User.findById(userId);
-  if (!user) throw ApiError.notFound('User not found');
-
-  const now = new Date();
-  if (now.getTime() > user.aiUsage.resetAt.getTime() + QUOTA_WINDOW_MS) {
-    user.aiUsage.count = 0;
-    user.aiUsage.resetAt = now;
-  }
-
-  const limit = PLAN_QUOTAS[user.plan];
-  if (user.aiUsage.count >= limit) {
-    throw new ApiError(429, `AI usage quota exceeded for the ${user.plan} plan (${limit}/mo)`);
-  }
-
-  user.aiUsage.count += 1;
-  await user.save();
-}
 
 async function assertThreadOwnership(userId: string, threadId: string): Promise<ThreadDocument> {
   const thread = await Thread.findById(threadId).populate('emailAccount');

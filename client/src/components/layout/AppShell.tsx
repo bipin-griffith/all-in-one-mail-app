@@ -1,16 +1,25 @@
-import { Inbox, LogOut, RefreshCcw } from 'lucide-react';
+import { Inbox, LayoutDashboard, LogOut, MessageCircle, RefreshCcw } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
-import { useEmailAccounts, useSyncEmailAccount } from '@/features/email/hooks/useEmailAccounts';
 import { useLogout } from '@/features/auth/hooks/useLogout';
+import { useEmailAccounts, useSyncEmailAccount } from '@/features/email/hooks/useEmailAccounts';
+import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
+
+const NAV_ITEMS = [
+  { to: '/inbox', label: 'Inbox', icon: Inbox },
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/chat', label: 'Ask your inbox', icon: MessageCircle },
+] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
   const user = useAuthStore((state) => state.user);
   const logout = useLogout();
   const { data: accounts } = useEmailAccounts();
   const sync = useSyncEmailAccount();
+  const location = useLocation();
 
   return (
     <div className="flex min-h-screen">
@@ -21,9 +30,19 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="flex-1 space-y-1 text-sm">
-          <a href="/inbox" className="block rounded-md px-3 py-2 hover:bg-accent">
-            Inbox
-          </a>
+          {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
+            <Link
+              key={to}
+              to={to}
+              className={cn(
+                'flex items-center gap-2 rounded-md px-3 py-2 hover:bg-accent',
+                location.pathname.startsWith(to) && 'bg-accent font-medium',
+              )}
+            >
+              <Icon className="h-4 w-4" />
+              {label}
+            </Link>
+          ))}
         </nav>
 
         <div className="space-y-2 border-t pt-4 text-sm">

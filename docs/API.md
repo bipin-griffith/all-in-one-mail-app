@@ -66,7 +66,7 @@ detected) is explained in [`docs/AUTH_AND_GMAIL.md`](AUTH_AND_GMAIL.md).
 ### Emails — `/api/v1/emails`
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| GET | `/` | private | Paginated, individual-message list (`?page=&limit=&category=&aiCategory=&aiPriority=&aiAction=&threadId=&q=`) |
+| GET | `/` | private | Paginated, individual-message list (`?page=&limit=&category=&aiCategory=&aiPriority=&aiAction=&isRead=&threadId=&q=`) |
 | GET | `/:id` | private | Single email, including attachment metadata and AI analysis fields |
 | GET | `/:id/attachments/:attachmentId` | private | Downloads attachment bytes, fetched from Gmail on demand (never stored in MongoDB — see AUTH_AND_GMAIL.md §2.6) |
 
@@ -90,6 +90,26 @@ pipeline manually; it always runs as a side effect of sync.
 | POST | `/draft-reply` | private | Enqueue reply draft generation → `202 { jobId }` |
 | POST | `/classify` | private | Enqueue thread categorization → `202 { jobId }` |
 | GET | `/jobs/:jobId` | private | Poll job status/result |
+
+### Chat (RAG) — `/api/v1/chat`
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/` | private | `{ message: string }` → `200 { answer, sources, tokensUsed }`. Synchronous (not queued) — see `docs/RAG_AND_DASHBOARDS.md` §6. Embeds the question, vector-searches the user's own emails for context, sends that context + question to OpenAI. `sources` lists the emails the answer drew from (id, subject, from, receivedAt, similarity score). |
+
+Counts against the same per-plan AI usage quota as `POST /ai/summarize`
+etc. (`docs/RAG_AND_DASHBOARDS.md` §7) and its own rate limit
+(`chatRateLimiter`, 10/min).
+
+### Dashboards — `/api/v1/dashboard`
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/category/:aiCategory` | private | Powers Jobs/Shopping/Finance dashboards. `{ category, total, byPriority, byAction, recent }` |
+| GET | `/stats` | private | `?granularity=day\|month&range=N` — powers Daily/Monthly Statistics. Array of `{ date, total, unread }` |
+| GET | `/top-senders` | private | `?limit=N` — array of `{ from, count, lastReceivedAt }` |
+
+Unread Emails and Priority Emails dashboards have no dedicated endpoints —
+they're `GET /emails?isRead=false` and `GET /emails?aiPriority=high`,
+reusing the existing list endpoint. See `docs/RAG_AND_DASHBOARDS.md` §9.
 
 ## Conventions
 
