@@ -80,6 +80,40 @@ async function persistMessage(
   }
 }
 
+/** True for the 404 Gmail returns when the requested resource no longer exists. */
+function isGmailNotFoundError(err: unknown): boolean {
+  const status = (err as { status?: number; response?: { status?: number } })?.status ??
+    (err as { response?: { status?: number } })?.response?.status;
+  return status === 404;
+}
+
+/**
+ * Fetches one message and persists it, tolerating the message having
+ * vanished between being listed/referenced and being fetched (deleted by
+ * the user, auto-purged as spam, etc. — a message id from `messages.list`
+ * or `history.list` is not a guarantee the message still exists by the time
+ * we get around to `messages.get`). Without this, a single disappeared
+ * message would throw and abort the rest of an otherwise-healthy sync — and
+ * since the failure recurs identically on every retry, the account would be
+ * permanently stuck unable to sync past that one dead message id.
+ */
+async function fetchAndPersistMessage(
+  gmail: gmail_v1.Gmail,
+  account: EmailAccountDocument,
+  messageId: string,
+  draftId: string | null = null,
+): Promise<void> {
+  let message: gmail_v1.Schema$Message;
+  try {
+    message = await gmailApi.getMessage(gmail, messageId);
+  } catch (err) {
+    if (!isGmailNotFoundError(err)) throw err;
+    logger.warn(`message ${messageId} no longer exists on account ${account.id as string}, skipping`);
+    return;
+  }
+  await persistMessage(account, message, draftId);
+}
+
 /**
  * First-ever sync for an account: no `historyId` cursor exists yet, so we
  * can't ask Gmail "what changed" — instead we explicitly pull a bounded page
@@ -109,13 +143,11 @@ async function bootstrapSync(gmail: gmail_v1.Gmail, account: EmailAccountDocumen
   );
 
   for (const messageId of regularMessageIds) {
-    const message = await gmailApi.getMessage(gmail, messageId);
-    await persistMessage(account, message);
+    await fetchAndPersistMessage(gmail, account, messageId);
   }
 
   for (const messageId of draftMessageIds) {
-    const message = await gmailApi.getMessage(gmail, messageId);
-    await persistMessage(account, message, draftIdByMessageId.get(messageId) ?? null);
+    await fetchAndPersistMessage(gmail, account, messageId, draftIdByMessageId.get(messageId) ?? null);
   }
 }
 
@@ -123,13 +155,29 @@ async function bootstrapSync(gmail: gmail_v1.Gmail, account: EmailAccountDocumen
  * Every sync after the first one: Gmail's history API returns everything
  * that changed since `startHistoryId` in one call, regardless of which
  * label/category it's under — far cheaper than re-listing every category.
+ *
+ * Gmail only retains history for a limited window (about a week); past
+ * that, `startHistoryId` is rejected with a 404 and there is no way to
+ * recover the missed changes incrementally. Rather than let that 404
+ * permanently fail every future sync for the account (the old behavior —
+ * `historyId` never changes, so every retry hit the exact same error), we
+ * fall back to a full `bootstrapSync`, which re-derives current mailbox
+ * state directly. `persistMessage`'s existing dedupe means re-fetching
+ * already-known messages is a safe no-op, not a source of duplicates.
  */
 async function incrementalSync(gmail: gmail_v1.Gmail, account: EmailAccountDocument): Promise<void> {
-  const messageIds = await gmailApi.listHistorySinceMessageAdded(gmail, account.historyId as string);
+  let messageIds: string[];
+  try {
+    messageIds = await gmailApi.listHistorySinceMessageAdded(gmail, account.historyId as string);
+  } catch (err) {
+    if (!isGmailNotFoundError(err)) throw err;
+    logger.warn(`historyId stale for account ${account.id as string}, falling back to full bootstrap sync`);
+    await bootstrapSync(gmail, account);
+    return;
+  }
 
   for (const messageId of messageIds) {
-    const message = await gmailApi.getMessage(gmail, messageId);
-    await persistMessage(account, message);
+    await fetchAndPersistMessage(gmail, account, messageId);
   }
 }
 

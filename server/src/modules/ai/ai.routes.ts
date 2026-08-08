@@ -10,7 +10,7 @@ import { classifySchema, draftReplySchema, jobIdParamSchema, summarizeSchema } f
 const router = Router();
 router.use(authenticate);
 
-// aiRateLimiter only guards the endpoints that actually trigger an OpenAI
+// aiRateLimiter only guards the endpoints that actually trigger a Gemini
 // call — GET /jobs/:jobId is a cheap Mongo read that the client polls every
 // ~1.5s while a job is in flight (see client's useAiJob hook), which would
 // blow through a 10-req/min limit within seconds if it shared the same

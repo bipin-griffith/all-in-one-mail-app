@@ -11,7 +11,9 @@ import threadRoutes from '../modules/email/thread.routes';
 
 const router = Router();
 
-router.get('/health', (_req, res) => res.status(200).json({ success: true, message: 'ok' }));
+// Health/readiness moved to top-level /health (not versioned API surface —
+// see app.ts). No route here anymore; this comment exists so the move
+// isn't mistaken for an oversight.
 
 router.use('/auth', authRoutes);
 router.use('/email-accounts', emailAccountRoutes);

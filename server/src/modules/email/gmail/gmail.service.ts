@@ -72,23 +72,37 @@ export async function listDrafts(
   return { drafts, nextPageToken: data.nextPageToken ?? undefined };
 }
 
-/** Incremental sync cursor: messages added since `startHistoryId`, across every label. */
+/**
+ * Incremental sync cursor: messages added since `startHistoryId`, across
+ * every label. Gmail paginates history results just like message lists, so
+ * this follows `nextPageToken` to completion — without it, any sync window
+ * spanning more than one page would silently drop messages past the first
+ * (no error, no log, just missing mail).
+ */
 export async function listHistorySinceMessageAdded(
   gmail: gmail_v1.Gmail,
   startHistoryId: string,
 ): Promise<string[]> {
-  const { data } = await gmail.users.history.list({
-    userId: 'me',
-    startHistoryId,
-    historyTypes: ['messageAdded'],
-  });
-
   const messageIds = new Set<string>();
-  for (const record of data.history ?? []) {
-    for (const added of record.messagesAdded ?? []) {
-      if (added.message?.id) messageIds.add(added.message.id);
+  let pageToken: string | undefined;
+
+  do {
+    const { data } = await gmail.users.history.list({
+      userId: 'me',
+      startHistoryId,
+      historyTypes: ['messageAdded'],
+      pageToken,
+    });
+
+    for (const record of data.history ?? []) {
+      for (const added of record.messagesAdded ?? []) {
+        if (added.message?.id) messageIds.add(added.message.id);
+      }
     }
-  }
+
+    pageToken = data.nextPageToken ?? undefined;
+  } while (pageToken);
+
   return [...messageIds];
 }
 

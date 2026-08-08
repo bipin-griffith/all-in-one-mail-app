@@ -1,10 +1,11 @@
-import { Inbox, LayoutDashboard, LogOut, MessageCircle, RefreshCcw } from 'lucide-react';
+import { AlertCircle, Inbox, LayoutDashboard, LogOut, MessageCircle, RefreshCcw, Sparkles } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import { useLogout } from '@/features/auth/hooks/useLogout';
 import { useEmailAccounts, useSyncEmailAccount } from '@/features/email/hooks/useEmailAccounts';
+import { avatarColorFor, initialsFor } from '@/lib/avatar';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 
@@ -24,47 +25,86 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen">
       <aside className="flex w-64 flex-col border-r bg-card p-4">
-        <div className="mb-6 flex items-center gap-2 font-semibold">
-          <Inbox className="h-5 w-5" />
-          AI Mail Assistant
+        <div className="mb-8 flex items-center gap-2.5 px-1 font-semibold">
+          <span className="brand-gradient flex h-8 w-8 items-center justify-center rounded-lg text-white shadow-sm">
+            <Sparkles className="h-4 w-4" />
+          </span>
+          <span className="text-[15px] tracking-tight">AI Mail Assistant</span>
         </div>
 
         <nav className="flex-1 space-y-1 text-sm">
-          {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
-            <Link
-              key={to}
-              to={to}
-              className={cn(
-                'flex items-center gap-2 rounded-md px-3 py-2 hover:bg-accent',
-                location.pathname.startsWith(to) && 'bg-accent font-medium',
-              )}
-            >
-              <Icon className="h-4 w-4" />
-              {label}
-            </Link>
-          ))}
+          {NAV_ITEMS.map(({ to, label, icon: Icon }) => {
+            const active = location.pathname.startsWith(to);
+            return (
+              <Link
+                key={to}
+                to={to}
+                className={cn(
+                  'relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground',
+                  active && 'bg-accent font-medium text-accent-foreground',
+                )}
+              >
+                {active && (
+                  <span className="brand-gradient absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full" />
+                )}
+                <Icon className="h-4 w-4" />
+                {label}
+              </Link>
+            );
+          })}
         </nav>
 
-        <div className="space-y-2 border-t pt-4 text-sm">
+        <div className="space-y-1 border-t pt-3 text-sm">
           {accounts?.map((account) => (
-            <div key={account._id} className="flex items-center justify-between gap-2">
-              <span className="truncate text-muted-foreground">{account.emailAddress}</span>
+            <div
+              key={account._id}
+              className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-accent/50"
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <span
+                  className={cn(
+                    'h-1.5 w-1.5 shrink-0 rounded-full',
+                    account.syncStatus === 'error'
+                      ? 'bg-destructive'
+                      : account.syncStatus === 'syncing'
+                        ? 'animate-pulse bg-amber-500'
+                        : 'bg-emerald-500',
+                  )}
+                  title={`Sync status: ${account.syncStatus}`}
+                />
+                <span className="truncate text-xs text-muted-foreground">{account.emailAddress}</span>
+              </div>
               <Button
                 size="icon"
                 variant="ghost"
+                className="h-7 w-7 shrink-0"
                 onClick={() => sync.mutate(account._id)}
                 disabled={sync.isPending || account.syncStatus === 'syncing'}
-                title="Sync now"
+                title={account.syncStatus === 'error' ? 'Last sync failed — retry' : 'Sync now'}
               >
-                <RefreshCcw className="h-4 w-4" />
+                {account.syncStatus === 'error' ? (
+                  <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+                ) : (
+                  <RefreshCcw className={cn('h-3.5 w-3.5', account.syncStatus === 'syncing' && 'animate-spin')} />
+                )}
               </Button>
             </div>
           ))}
 
-          <div className="flex items-center justify-between pt-2">
-            <span className="truncate">{user?.name}</span>
-            <Button size="icon" variant="ghost" onClick={() => logout.mutate()} title="Log out">
-              <LogOut className="h-4 w-4" />
+          <div className="flex items-center justify-between gap-2 pt-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                className={cn(
+                  'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white',
+                  avatarColorFor(user?.email ?? user?.name ?? ''),
+                )}
+              >
+                {initialsFor(user?.name ?? user?.email ?? '?')}
+              </span>
+              <span className="truncate text-sm">{user?.name}</span>
+            </div>
+            <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => logout.mutate()} title="Log out">
+              <LogOut className="h-3.5 w-3.5" />
             </Button>
           </div>
         </div>

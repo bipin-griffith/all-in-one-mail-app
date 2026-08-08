@@ -9,4 +9,4 @@ process.env.ENCRYPTION_KEY = 'test_encryption_key_at_least_32_characters';
 process.env.GOOGLE_CLIENT_ID = 'test-client-id';
 process.env.GOOGLE_CLIENT_SECRET = 'test-client-secret';
 process.env.GOOGLE_REDIRECT_URI = 'http://localhost:5000/api/v1/auth/google/callback';
-process.env.OPENAI_API_KEY = 'test-openai-key';
+process.env.GEMINI_API_KEY = 'test-gemini-key';

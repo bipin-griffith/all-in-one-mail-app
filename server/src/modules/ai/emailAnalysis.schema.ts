@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { EMAIL_AI_ACTIONS, EMAIL_AI_CATEGORIES, EMAIL_AI_PRIORITIES } from '../../models/email.model';
 
 /**
- * Validates (and gracefully repairs) OpenAI's JSON response for a single
+ * Validates (and gracefully repairs) Gemini's JSON response for a single
  * email. `.catch(...)` on each field means a single malformed/hallucinated
  * field degrades to a safe default instead of failing the entire analysis —
  * an LLM drifting slightly off-spec on one field shouldn't discard a

@@ -3,7 +3,7 @@ import { ApiError } from '../../utils/ApiError';
 
 import { assertQuotaAndIncrement } from './aiUsage.service';
 import { generateEmbedding } from './embedding.service';
-import { completeChat } from './openai.client';
+import { completeChat } from './gemini.client';
 import { searchSimilarEmails, type EmailSearchResult } from './vectorSearch.service';
 
 /**
@@ -68,7 +68,7 @@ const SYSTEM_PROMPT = [
 /**
  * The RAG pipeline: embed the question → vector-search the user's own
  * emails for relevant context → send that context + the question to
- * OpenAI → return a grounded answer with its sources.
+ * Gemini → return a grounded answer with its sources.
  *
  * Runs synchronously within the request (unlike summarize/draft/classify,
  * which are always queued — see docs/ARCHITECTURE.md). This is a

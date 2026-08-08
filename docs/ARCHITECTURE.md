@@ -18,12 +18,12 @@
                                          │                         │  BullMQ Worker │
                                          ▼                         │  (same image,  │
                                  ┌───────────────┐                 │  WORKER=true)  │
-                                 │   OpenAI API   │ ◀───────────────┤  calls OpenAI  │
+                                 │   Gemini API   │ ◀───────────────┤  calls Gemini  │
                                  └───────────────┘                 └────────────────┘
 ```
 
 - The **API process** and the **worker process** are the same Docker image, started with a different entrypoint (`node dist/server.js` vs `node dist/modules/queue/worker.js`). This keeps the codebase single-sourced while allowing independent horizontal scaling in production (e.g. scale workers up during a bulk re-sync without touching API capacity).
-- The API never calls OpenAI synchronously inside a request handler for anything non-trivial (summarize thread, draft reply, classify). Those are enqueued as BullMQ jobs and the client polls / subscribes to job status. This keeps request latency low and protects against OpenAI rate limits cascading into HTTP timeouts.
+- The API never calls Gemini synchronously inside a request handler for anything non-trivial (summarize thread, draft reply, classify). Those are enqueued as BullMQ jobs and the client polls / subscribes to job status. This keeps request latency low and protects against Gemini rate limits cascading into HTTP timeouts.
 - Redis is used for both BullMQ (durable job queue) and, optionally, rate-limiting / session blacklisting (`rate-limiter-flexible` can share the same Redis connection).
 
 ## Why feature-based (not layer-based) folders
@@ -48,7 +48,7 @@ The backend is organized as `modules/<feature>/{routes,controller,service,valida
 
 1. Client calls `POST /api/v1/ai/summarize` with a `threadId`.
 2. Controller validates ownership, enqueues a job on the `ai-processing` BullMQ queue, returns `202 Accepted` with a `jobId`.
-3. Worker process picks up the job, calls OpenAI, writes the result to `ai_interactions` collection, updates job progress.
+3. Worker process picks up the job, calls Gemini, writes the result to `ai_interactions` collection, updates job progress.
 4. Client polls `GET /api/v1/ai/jobs/:jobId` (or a future WebSocket/SSE channel) for status.
 
 This pattern is identical for `draft-reply`, `classify`, and `bulk-summarize` — see `server/src/modules/ai`.
@@ -63,14 +63,14 @@ involved:
    (not a re-sync of something already stored), it enqueues a job on the
    `email-ai-processing` BullMQ queue.
 2. The worker picks it up, cleans/extracts the readable text, makes one
-   OpenAI call (JSON mode) to get summary + category + priority + action,
+   Gemini call (JSON mode) to get summary + category + priority + action,
    and writes the results directly onto that `Email` document.
 3. The client sees the results simply by reading `GET /emails/:id` (or the
    list endpoint) once processing completes — no polling protocol needed,
    since the data lands on a resource the client already fetches, rather
    than a job the client has to track.
 
-Full design rationale (why one OpenAI call instead of four, why this pipeline
+Full design rationale (why one Gemini call instead of four, why this pipeline
 isn't gated by the same AI usage quota as user-triggered actions, retry
 policy): [`docs/AI_PIPELINE.md`](AI_PIPELINE.md).
 
@@ -81,7 +81,7 @@ email (in parallel with the summary/category/priority/action call), stored
 on the `Email` document. `POST /api/v1/chat` uses those embeddings for
 retrieval-augmented generation: embed the incoming question, vector-search
 the user's own emails for the most relevant ones, send that (compact,
-summary-based) context to OpenAI, return a grounded answer with cited
+summary-based) context to Gemini, return a grounded answer with cited
 sources. Unlike every other AI operation in this system, `/chat` responds
 synchronously rather than through the job/poll pattern — it's an
 interactive request, not a batch operation.

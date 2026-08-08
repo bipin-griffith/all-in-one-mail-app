@@ -21,13 +21,13 @@ Redis (BullMQ queue)
 Worker process (separate Node process, same codebase)
         │  calls
         ▼
-Google Gmail API (sync your inbox)  +  OpenAI API (summarize/draft/classify)
+Google Gmail API (sync your inbox)  +  Gemini API (summarize/draft/classify)
 ```
 
-- **The API never calls Gmail or OpenAI directly inside a request.** When you click
+- **The API never calls Gmail or Gemini directly inside a request.** When you click
   "Sync" or "Summarize", the API just queues a job and immediately responds. The
   **worker** (a separate process) picks the job off the Redis queue, does the slow
-  work (talking to Google/OpenAI), and writes the result to MongoDB. The frontend
+  work (talking to Google/Gemini), and writes the result to MongoDB. The frontend
   polls for the result. This is why you need **4 things running at once** (API,
   worker, MongoDB, Redis) — see the run steps below.
 - Auth uses short-lived JWT access tokens (kept in memory in the browser tab) plus a
@@ -44,7 +44,7 @@ Google Gmail API (sync your inbox)  +  OpenAI API (summarize/draft/classify)
 
 ### What needs API keys before it does anything (see §3)
 - "Continue with Google" button + Gmail inbox sync → needs **Google OAuth** keys
-- Summarize / Draft reply / Classify buttons → needs an **OpenAI** key
+- Summarize / Draft reply / Classify buttons → needs a **Gemini** key
 
 ---
 
@@ -61,7 +61,7 @@ cp server/.env.example server/.env   # then fill in real values, see §3
 cp client/.env.example client/.env
 ```
 Your `server/.env` and `client/.env` already exist with working defaults —
-you only need to edit the Google/OpenAI lines in `server/.env` (§3).
+you only need to edit the Google/Gemini lines in `server/.env` (§3).
 
 ### Every time you want to run the app
 
@@ -135,18 +135,26 @@ Needed for: "Continue with Google" button, Gmail inbox sync.
    ```
    (`GOOGLE_REDIRECT_URI` is already correct — leave it as-is.)
 
-### OpenAI (`OPENAI_API_KEY`)
-Needed for: Summarize / Draft reply / Classify AI actions on a thread.
+### Gemini (`GEMINI_API_KEY`)
+Needed for: Summarize / Draft reply / Classify / Chat AI actions, and the
+automatic per-email summary/category pipeline.
 
-1. Go to https://platform.openai.com/api-keys → create a new secret key.
-2. You'll need billing enabled on the OpenAI account (even a few dollars of credit
-   is enough for testing).
-3. Paste it into `server/.env`:
+This app switched from OpenAI to Gemini specifically because Gemini has a
+**free tier that needs no billing/credit card at all** — unlike OpenAI,
+which now requires prepaid credits even for its cheapest model.
+
+1. Go to https://aistudio.google.com/apikey (sign in with any Google account).
+2. Click **Create API key** → pick or create a Google Cloud project when prompted
+   (this does *not* require enabling billing for the free tier).
+3. Copy the key and paste it into `server/.env`:
    ```
-   OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxx
+   GEMINI_API_KEY=your-key-here
    ```
-   `OPENAI_MODEL=gpt-4o-mini` is already set as a cheap, fast default — change it if
-   you want a different model.
+   Gemini keys don't follow OpenAI's `sk-...` format — just paste whatever
+   Google AI Studio gives you as-is.
+
+   `GEMINI_MODEL=gemini-3.5-flash-lite` is already set as a cheap, fast default —
+   change it if you want a different model.
 
 ### Everything else in `server/.env`
 Already generated/filled for local dev — you don't need to touch these:
@@ -174,5 +182,5 @@ restart (`Ctrl+C` then `npm run dev` again) is needed.
 4. Open a thread once emails have synced, click **Summarize** — this queues an AI
    job; the panel polls automatically until the result appears.
 5. If something fails, check the worker terminal (Terminal 3) — that's where
-   Gmail/OpenAI errors show up, since that's the process actually talking to those
+   Gmail/Gemini errors show up, since that's the process actually talking to those
    APIs.

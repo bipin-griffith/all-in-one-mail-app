@@ -32,10 +32,21 @@ async function process(job: Job<AiJobData>): Promise<unknown> {
   return outcome;
 }
 
+/**
+ * Shares Gemini's 15 requests/minute free-tier quota with the automatic
+ * `email-ai-processing` queue (see that worker's comment for the full
+ * explanation) — sized to the remainder after that queue's budget, since
+ * user-triggered actions here are naturally low-volume (one click = one
+ * job) and mainly need to avoid compounding a concurrent bulk-sync burst
+ * into a shared 429.
+ */
+const GEMINI_RATE_LIMIT = { max: 5, duration: 60_000 };
+
 export function createAiWorker(): Worker<AiJobData> {
   const worker = new Worker<AiJobData>(QueueNames.AI_PROCESSING, process, {
     connection: redisConnectionOptions,
     concurrency: env.WORKER_CONCURRENCY,
+    limiter: GEMINI_RATE_LIMIT,
   });
 
   worker.on('completed', (job) => logger.info(`[ai] completed job ${job.id} (${job.data.type})`));

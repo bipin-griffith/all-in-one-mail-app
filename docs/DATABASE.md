@@ -100,9 +100,9 @@ Individual messages within a thread.
 | `aiStatus` | `'pending'\|'processing'\|'completed'\|'failed'` | pipeline status for this email |
 | `aiError` | string \| null | populated when `aiStatus` is `'failed'` |
 | `aiProcessedAt` | Date \| null | |
-| `aiTokens` | `{ prompt: number, completion: number }` | OpenAI token usage for this email's analysis call |
+| `aiTokens` | `{ prompt: number, completion: number }` | Gemini token usage for this email's analysis call |
 | `embedding` | number[] | `select: false` — vector embedding for semantic search/RAG, see `docs/RAG_AND_DASHBOARDS.md`. Never serialized in API responses. |
-| `embeddingModel` | string \| null | which OpenAI embedding model produced `embedding` |
+| `embeddingModel` | string \| null | which Gemini embedding model produced `embedding` |
 | `embeddingGeneratedAt` | Date \| null | |
 
 ### `aiinteractions`
@@ -153,4 +153,4 @@ only exists on MongoDB Atlas. See `docs/RAG_AND_DASHBOARDS.md` §1.
 - **Tokens are encrypted at rest** (`accessTokenEncrypted`/`refreshTokenEncrypted`), not just excluded from `toJSON` — a DB dump/leak must not directly hand over live Gmail access. See `server/src/utils/crypto.ts`.
 - **Sessions, not a token field, back refresh tokens** — enables multi-device login, per-device revocation, and refresh-token-reuse detection. See AUTH_AND_GMAIL.md §1.
 - **Emails are cached, not the source of truth.** Gmail remains authoritative; our copy exists for fast search/AI without hammering the Gmail API on every page load. Incremental sync uses Gmail's `historyId` cursor rather than re-fetching everything.
-- **AI results are persisted**, not just returned once — enables a "history" UI, re-use without re-billing OpenAI for the same summary, and usage analytics per user/plan.
+- **AI results are persisted**, not just returned once — enables a "history" UI, re-use without re-billing Gemini for the same summary, and usage analytics per user/plan.

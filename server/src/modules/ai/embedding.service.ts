@@ -1,6 +1,7 @@
 import { env } from '../../config/env';
 
-import { openai } from './openai.client';
+import { genAI } from './gemini.client';
+import { EMBEDDING_DIMENSIONS } from './vectorSearch.service';
 
 /**
  * Caps the text sent to the embeddings API. Semantic search doesn't need —
@@ -18,28 +19,38 @@ export interface EmbeddingResult {
 }
 
 /**
- * Wraps OpenAI's embeddings endpoint. Used both to embed every synced email
- * (emailProcessing.service.ts) and to embed an incoming chat question
- * (chat.service.ts) — both need the exact same model/dimensions, since a
- * query embedding is only comparable to document embeddings produced by the
- * same model.
+ * Wraps Gemini's embeddings endpoint (`embedContent`). Used both to embed
+ * every synced email (emailProcessing.service.ts) and to embed an incoming
+ * chat question (chat.service.ts) — both need the exact same
+ * model/dimensions, since a query embedding is only comparable to document
+ * embeddings produced by the same model.
+ *
+ * `outputDimensionality` is pinned to `EMBEDDING_DIMENSIONS` (1536) rather
+ * than left at the model's default (3072) — Gemini's embedding model
+ * supports Matryoshka Representation Learning, so truncating to a smaller,
+ * still-valid dimensionality is an explicit, supported option, not a hack.
+ * 1536 was chosen to match the Atlas Vector Search index definition
+ * (`vectorSearch.service.ts`, `scripts/create-vector-index.ts`) — the two
+ * numbers must always agree, which is why both reference the same constant
+ * instead of each hardcoding it separately.
  */
 export async function generateEmbedding(text: string): Promise<EmbeddingResult> {
   const input = text.length > MAX_EMBEDDING_INPUT_CHARS ? text.slice(0, MAX_EMBEDDING_INPUT_CHARS) : text;
 
-  const response = await openai.embeddings.create({
-    model: env.OPENAI_EMBEDDING_MODEL,
-    input: input || '(empty email)',
+  const response = await genAI.models.embedContent({
+    model: env.GEMINI_EMBEDDING_MODEL,
+    contents: input || '(empty email)',
+    config: { outputDimensionality: EMBEDDING_DIMENSIONS },
   });
 
-  const vector = response.data[0]?.embedding;
+  const vector = response.embeddings?.[0]?.values;
   if (!vector) {
-    throw new Error('OpenAI returned no embedding vector');
+    throw new Error('Gemini returned no embedding vector');
   }
 
   return {
     embedding: vector,
-    model: env.OPENAI_EMBEDDING_MODEL,
-    tokens: response.usage?.total_tokens ?? 0,
+    model: env.GEMINI_EMBEDDING_MODEL,
+    tokens: response.embeddings?.[0]?.statistics?.tokenCount ?? 0,
   };
 }

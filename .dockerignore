@@ -1,0 +1,23 @@
+# Build context is the monorepo root (see server/Dockerfile, client/Dockerfile,
+# docker-compose.yml) — this keeps that context small and excludes anything
+# that would otherwise shadow what each Dockerfile COPYs in deliberately
+# (e.g. a stale local node_modules or dist).
+**/node_modules
+**/dist
+**/build
+**/coverage
+.git
+.github
+
+# Env files — secrets must never end up baked into an image layer.
+**/.env
+**/.env.*
+!**/.env.example
+
+**/*.log
+logs
+
+**/*.test.ts
+**/*.test.tsx
+
+.DS_Store

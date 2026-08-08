@@ -94,7 +94,7 @@ pipeline manually; it always runs as a side effect of sync.
 ### Chat (RAG) — `/api/v1/chat`
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| POST | `/` | private | `{ message: string }` → `200 { answer, sources, tokensUsed }`. Synchronous (not queued) — see `docs/RAG_AND_DASHBOARDS.md` §6. Embeds the question, vector-searches the user's own emails for context, sends that context + question to OpenAI. `sources` lists the emails the answer drew from (id, subject, from, receivedAt, similarity score). |
+| POST | `/` | private | `{ message: string }` → `200 { answer, sources, tokensUsed }`. Synchronous (not queued) — see `docs/RAG_AND_DASHBOARDS.md` §6. Embeds the question, vector-searches the user's own emails for context, sends that context + question to Gemini. `sources` lists the emails the answer drew from (id, subject, from, receivedAt, similarity score). |
 
 Counts against the same per-plan AI usage quota as `POST /ai/summarize`
 etc. (`docs/RAG_AND_DASHBOARDS.md` §7) and its own rate limit

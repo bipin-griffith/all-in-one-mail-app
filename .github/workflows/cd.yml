@@ -8,20 +8,18 @@ on:
     branches: [main]
     types: [completed]
 
-permissions:
-  contents: read
-  packages: write
-
 env:
   REGISTRY: ghcr.io
   SERVER_IMAGE: ghcr.io/${{ github.repository }}/server
-  CLIENT_IMAGE: ghcr.io/${{ github.repository }}/client
 
 jobs:
-  build-and-push:
-    name: Build & push Docker images
+  build-and-push-server:
+    name: Build & push server image
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     outputs:
       sha: ${{ steps.sha.outputs.short }}
     steps:
@@ -38,45 +36,35 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build & push server image
+      # Build context is the repo root, not ./server — see server/Dockerfile's
+      # top comment (npm-workspaces monorepo, one shared lockfile at the root).
+      - name: Build & push
         uses: docker/build-push-action@v6
         with:
-          context: ./server
+          context: .
+          file: server/Dockerfile
           push: true
           tags: |
             ${{ env.SERVER_IMAGE }}:${{ steps.sha.outputs.short }}
             ${{ env.SERVER_IMAGE }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=server
+          cache-to: type=gha,mode=max,scope=server
 
-      - name: Build & push client image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./client
-          push: true
-          build-args: |
-            VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }}
-          tags: |
-            ${{ env.CLIENT_IMAGE }}:${{ steps.sha.outputs.short }}
-            ${{ env.CLIENT_IMAGE }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  deploy:
-    name: Deploy to EC2
-    needs: build-and-push
+  deploy-backend:
+    name: Deploy backend to EC2
+    needs: build-and-push-server
     runs-on: ubuntu-latest
     environment: production
     steps:
       - uses: actions/checkout@v4
 
-      - name: Copy compose file to EC2
+      - name: Copy compose file + scripts to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: 'docker-compose.prod.yml'
+          source: 'docker-compose.prod.yml,scripts/*'
           target: '~/ai-mail-assistant'
 
       - name: Deploy over SSH
@@ -85,12 +73,43 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: SERVER_IMAGE,CLIENT_IMAGE
           script: |
+            set -e
             cd ~/ai-mail-assistant
+            chmod +x scripts/*.sh
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            export SERVER_IMAGE=${{ env.SERVER_IMAGE }}:${{ needs.build-and-push.outputs.sha }}
-            export CLIENT_IMAGE=${{ env.CLIENT_IMAGE }}:${{ needs.build-and-push.outputs.sha }}
-            docker compose -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.prod.yml up -d --remove-orphans
-            docker image prune -f
+            export SERVER_IMAGE_REPO=${{ env.SERVER_IMAGE }}
+            ./scripts/deploy-backend.sh ${{ needs.build-and-push-server.outputs.sha }}
+
+  deploy-frontend:
+    name: Deploy frontend to S3 + CloudFront
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment: production
+    # id-token: write is what lets aws-actions/configure-aws-credentials use
+    # OIDC federation below — no long-lived AWS access keys stored as GitHub
+    # secrets at all. See docs/DEPLOYMENT.md for the one-time IAM role setup
+    # this depends on (a trust policy scoped to this specific repo).
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Build & deploy
+        run: ./scripts/deploy-frontend.sh
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}

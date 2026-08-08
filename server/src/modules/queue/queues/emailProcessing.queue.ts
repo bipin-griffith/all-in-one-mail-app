@@ -10,9 +10,9 @@ export interface EmailProcessingJobData {
 export const emailProcessingQueue = new Queue<EmailProcessingJobData>(QueueNames.EMAIL_AI_PROCESSING, {
   connection: redisConnectionOptions,
   defaultJobOptions: {
-    // Retry mechanism: OpenAI/network calls are occasionally flaky but
+    // Retry mechanism: Gemini/network calls are occasionally flaky but
     // usually succeed on a subsequent attempt — exponential backoff spaces
-    // retries out instead of hammering OpenAI immediately after a failure.
+    // retries out instead of hammering the API immediately after a failure.
     // Same policy as emailSyncQueue, for the same reason (both call a
     // third-party API that can have transient outages).
     attempts: 3,

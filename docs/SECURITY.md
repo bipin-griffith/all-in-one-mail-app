@@ -22,13 +22,13 @@
 
 ## Rate limiting & abuse
 
-- `express-rate-limit` (backed by the shared Redis via `rate-limit-redis`) on `/auth/*` (prevent credential stuffing) and `/ai/*` (prevent OpenAI cost abuse), tuned per route, not a single global limiter.
+- `express-rate-limit` (backed by the shared Redis via `rate-limit-redis`) on `/auth/*` (prevent credential stuffing) and `/ai/*` (prevent Gemini cost abuse), tuned per route, not a single global limiter.
 - Per-user AI usage quota enforced in `ai.service.ts` before enqueueing a job (`users.aiUsage`), independent of rate limiting — rate limiting stops bursts, quota stops sustained abuse within plan limits.
 
 ## Secrets & config
 
 - No secret ever committed — `.env` is gitignored, `.env.example` documents required keys with placeholder values only.
-- Production secrets (`JWT_ACCESS_SECRET`, `ENCRYPTION_KEY`, `OPENAI_API_KEY`, Mongo/Redis URIs, Google OAuth client secret) are injected via environment at deploy time (GitHub Actions secrets → EC2 via SSH deploy step, or an `.env` file with `600` permissions outside the repo on the host) — never baked into the Docker image.
+- Production secrets (`JWT_ACCESS_SECRET`, `ENCRYPTION_KEY`, `GEMINI_API_KEY`, Mongo/Redis URIs, Google OAuth client secret) are injected via environment at deploy time (GitHub Actions secrets → EC2 via SSH deploy step, or an `.env` file with `600` permissions outside the repo on the host) — never baked into the Docker image.
 - `ENCRYPTION_KEY` and JWT secrets are generated with `openssl rand -base64 32`, rotated on suspected compromise; rotating `JWT_ACCESS_SECRET` invalidates all sessions (acceptable/expected), rotating `ENCRYPTION_KEY` requires a re-encryption migration (documented, not automatic).
 
 ## Dependency & supply chain

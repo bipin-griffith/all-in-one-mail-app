@@ -25,15 +25,25 @@ const envSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().min(1),
   GOOGLE_REDIRECT_URI: z.string().url(),
 
-  OPENAI_API_KEY: z.string().min(1),
-  OPENAI_MODEL: z.string().default('gpt-4o-mini'),
-  OPENAI_EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
+  GEMINI_API_KEY: z.string().min(1),
+  GEMINI_MODEL: z.string().default('gemini-3.5-flash-lite'),
+  GEMINI_EMBEDDING_MODEL: z.string().default('gemini-embedding-001'),
 
   // Set to 'true' once the Atlas Search vector index (see
   // server/scripts/create-vector-index.ts) exists on the target cluster.
   // Community/local MongoDB (e.g. the docker-compose `mongo` service) does
   // not support $vectorSearch at all — see docs/RAG_AND_DASHBOARDS.md.
-  MONGO_ATLAS_VECTOR_SEARCH_ENABLED: z.coerce.boolean().default(false),
+  //
+  // NOTE: this is intentionally NOT `z.coerce.boolean()`. `process.env`
+  // values are always strings, and `Boolean("false")` is `true` in
+  // JavaScript — that coercion would silently treat
+  // `MONGO_ATLAS_VECTOR_SEARCH_ENABLED=false` as *enabled*. Same bug class
+  // as the one fixed in email.validation.ts's `isRead` query param — see
+  // that file's comment for the full explanation.
+  MONGO_ATLAS_VECTOR_SEARCH_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(5),
 });

@@ -15,6 +15,13 @@ export interface EmailAccountDocument extends Document {
   tokenExpiresAt: Date;
   historyId: string | null;
   syncStatus: 'idle' | 'syncing' | 'error';
+  /**
+   * When the current 'syncing' status began. Lets `triggerSync` distinguish
+   * a genuinely in-flight sync from one whose worker died mid-job (e.g. a
+   * process restart) without ever flipping status back to 'idle'/'error' —
+   * see `email.service.ts#isSyncLockStale`.
+   */
+  syncStartedAt: Date | null;
   lastSyncedAt: Date | null;
   /**
    * The mailbox's label list (system labels like INBOX/SENT plus any
@@ -47,6 +54,7 @@ const emailAccountSchema = new Schema<EmailAccountDocument>(
     tokenExpiresAt: { type: Date, required: true },
     historyId: { type: String, default: null },
     syncStatus: { type: String, enum: ['idle', 'syncing', 'error'], default: 'idle' },
+    syncStartedAt: { type: Date, default: null },
     lastSyncedAt: { type: Date, default: null },
     labels: { type: [labelSchema], default: [] },
   },

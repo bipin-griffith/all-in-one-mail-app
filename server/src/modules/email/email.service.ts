@@ -30,6 +30,24 @@ export async function disconnectEmailAccount(userId: string, accountId: string):
 }
 
 /**
+ * How long a 'syncing' status is trusted as "a job is genuinely in flight."
+ * Past this, it's treated as an orphaned lock (the worker that set it almost
+ * certainly died mid-job — e.g. a restart — without ever reaching
+ * syncAccount's try/catch to flip status back to 'idle'/'error') and a new
+ * sync is allowed to proceed rather than leaving the account stuck forever.
+ * A real sync (bootstrap or incremental) normally completes in seconds; ten
+ * minutes gives generous headroom for a slow mailbox without letting a lost
+ * job block the user indefinitely.
+ */
+const SYNC_LOCK_STALE_MS = 10 * 60 * 1000;
+
+function isSyncLockStale(account: EmailAccountDocument): boolean {
+  if (account.syncStatus !== 'syncing') return false;
+  if (!account.syncStartedAt) return true;
+  return Date.now() - account.syncStartedAt.getTime() > SYNC_LOCK_STALE_MS;
+}
+
+/**
  * Marks the account "syncing" and enqueues the job. If enqueueing itself
  * fails (e.g. Redis briefly unreachable), the status is rolled back to
  * "error" rather than left stuck on "syncing" forever with no job actually
@@ -37,6 +55,7 @@ export async function disconnectEmailAccount(userId: string, accountId: string):
  */
 async function markSyncingAndEnqueue(account: EmailAccountDocument): Promise<string> {
   account.syncStatus = 'syncing';
+  account.syncStartedAt = new Date();
   await account.save();
 
   try {
@@ -50,6 +69,9 @@ async function markSyncingAndEnqueue(account: EmailAccountDocument): Promise<str
 
 export async function triggerSync(userId: string, accountId: string): Promise<string> {
   const account = await getOwnedEmailAccount(userId, accountId);
+  if (account.syncStatus === 'syncing' && !isSyncLockStale(account)) {
+    throw ApiError.badRequest('A sync is already in progress for this account');
+  }
   return markSyncingAndEnqueue(account);
 }
 
@@ -62,6 +84,7 @@ export async function triggerSyncAll(userId: string): Promise<string[]> {
 
   const jobIds: string[] = [];
   for (const account of accounts) {
+    if (account.syncStatus === 'syncing' && !isSyncLockStale(account)) continue;
     jobIds.push(await markSyncingAndEnqueue(account));
   }
   return jobIds;

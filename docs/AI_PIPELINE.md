@@ -10,10 +10,10 @@ see [`docs/AUTH_AND_GMAIL.md`](AUTH_AND_GMAIL.md).
 ## Where the code lives
 
 ```
-modules/email/textExtraction.service.ts   → step 1-2: clean HTML, extract readable text (pure, no OpenAI)
+modules/email/textExtraction.service.ts   → step 1-2: clean HTML, extract readable text (pure, no Gemini)
 modules/ai/emailAnalysis.prompt.ts        → builds the single, token-minimized prompt
-modules/ai/emailAnalysis.schema.ts        → validates/repairs OpenAI's JSON response
-modules/ai/openai.client.ts               → completeJson() — OpenAI call in JSON mode
+modules/ai/emailAnalysis.schema.ts        → validates/repairs Gemini's JSON response
+modules/ai/gemini.client.ts               → completeJson() — Gemini call in JSON mode
 modules/ai/emailProcessing.service.ts     → orchestrates steps 1-6 for one email
 modules/queue/queues/emailProcessing.queue.ts → BullMQ queue + enqueue helper
 modules/queue/workers/emailProcessing.worker.ts → BullMQ worker (retries, logging)
@@ -37,15 +37,15 @@ automatically backfilled — a deliberate scope boundary ("every **new**
 email," as specified), not an oversight. A batch reprocessing job for
 historical emails would be a natural, separate follow-up.
 
-## 2. One OpenAI call per email, not four
+## 2. One Gemini call per email, not four
 
 The most impactful token-usage decision: summary, category, priority, and
 action are all requested in a **single** chat completion using
-`response_format: { type: 'json_object' }`, not four separate calls. Four
-calls would mean sending the same email content to OpenAI four times —
+`config: { responseMimeType: 'application/json' }`, not four separate calls. Four
+calls would mean sending the same email content to Gemini four times —
 roughly 4x the input-token cost for no benefit, since none of the four
 outputs depend on the others having already been computed. See
-`openai.client.ts#completeJson` and `emailAnalysis.prompt.ts`.
+`gemini.client.ts#completeJson` and `emailAnalysis.prompt.ts`.
 
 Further token-reduction choices in `emailAnalysis.prompt.ts`:
 - The body is capped at 3000 characters before being sent. A short summary
@@ -56,8 +56,8 @@ Further token-reduction choices in `emailAnalysis.prompt.ts`:
   examples. Examples improve accuracy but their token cost is paid on
   *every single call* — for a high-volume, per-email pipeline (as opposed to
   an occasional user-triggered action), that fixed overhead dominates.
-- `gpt-4o-mini` (the configured default `OPENAI_MODEL`) is one of the
-  cheapest OpenAI models that reliably supports JSON mode — deliberately not
+- `gemini-3.5-flash-lite` (the configured default `GEMINI_MODEL`) is one of the
+  cheapest Gemini models that reliably supports JSON mode — deliberately not
   a larger/pricier model, since this task (short summary + a 3-way
   classification) doesn't need frontier-model reasoning.
 
@@ -69,13 +69,13 @@ Mongoose `enum`-constrained fields (unlike the deterministic, always-derived
 `emailAnalysis.schema.ts`, using Zod's `.catch(fallbackValue)` on each field
 individually:
 
-- If OpenAI returns a category/priority/action outside the allowed list
+- If Gemini returns a category/priority/action outside the allowed list
   (LLMs occasionally drift off-spec, e.g. returning `"urgent"` instead of
   `"high"`), that *one field* falls back to a safe default — the job still
   succeeds, and the (perfectly good) summary it also returned isn't thrown
   away over one bad field.
 - Only a response that isn't valid JSON at all causes the job to fail and
-  retry — that's the one case where retrying (asking OpenAI again) is
+  retry — that's the one case where retrying (asking Gemini again) is
   actually likely to produce a usable result.
 
 A second Mongoose-level enum on top of this would be redundant: the value
@@ -87,7 +87,7 @@ where the actual decision logic (what to do with an invalid value) lives.
 
 `emailProcessingQueue` uses the same retry policy as `emailSyncQueue`:
 `attempts: 3` with exponential backoff (5s, 10s, 20s). Both queues call a
-third-party API (OpenAI / Gmail) that can have transient failures — a brief
+third-party API (Gemini / Gmail) that can have transient failures — a brief
 rate-limit or network blip self-heals on retry; a permanent failure (e.g.
 invalid API key) exhausts its 3 attempts and the email is left with
 `aiStatus: 'failed'` and a populated `aiError`, visible via `GET
@@ -108,7 +108,7 @@ that's a product design conflict, not a rate-limiting success.
 The practical cost/rate control here is `WORKER_CONCURRENCY` (bounds how
 many emails are processed in parallel) plus the queue's `attempts` cap. The
 real tradeoff being made explicit: **connecting a mailbox with a large
-inbox will make a meaningful number of OpenAI calls automatically**, and
+inbox will make a meaningful number of Gemini calls automatically**, and
 that cost is not currently capped by a quota. A natural following change
 (not implemented here, to keep this feature's scope to what was asked)
 would be a separate "auto-processing" quota, or restricting automatic

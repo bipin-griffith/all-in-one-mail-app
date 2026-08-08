@@ -5,7 +5,7 @@ import { extractReadableText } from '../email/textExtraction.service';
 import { buildEmailAnalysisPrompt } from './emailAnalysis.prompt';
 import { emailAnalysisResponseSchema, type EmailAnalysisResult } from './emailAnalysis.schema';
 import { generateEmbedding } from './embedding.service';
-import { completeJson } from './openai.client';
+import { completeJson } from './gemini.client';
 
 const FALLBACK_ANALYSIS: EmailAnalysisResult = {
   summary: 'Unable to generate a summary for this email.',
@@ -15,19 +15,19 @@ const FALLBACK_ANALYSIS: EmailAnalysisResult = {
 };
 
 /**
- * Parses OpenAI's raw JSON string response. A genuinely malformed/truncated
- * JSON body is rare with `response_format: json_object` but re-throws so
- * the BullMQ job retries (a transient hiccup on OpenAI's side is likely to
- * succeed on retry); a *parseable but off-spec* response is repaired
- * field-by-field via the schema's `.catch()` fallbacks instead of failing
- * the job — see emailAnalysis.schema.ts.
+ * Parses Gemini's raw JSON string response. A genuinely malformed/truncated
+ * JSON body is rare with `responseMimeType: 'application/json'` but
+ * re-throws so the BullMQ job retries (a transient hiccup on Gemini's side
+ * is likely to succeed on retry); a *parseable but off-spec* response is
+ * repaired field-by-field via the schema's `.catch()` fallbacks instead of
+ * failing the job — see emailAnalysis.schema.ts.
  */
 function parseAnalysisResponse(raw: string, emailId: string): EmailAnalysisResult {
   let json: unknown;
   try {
     json = JSON.parse(raw);
   } catch {
-    throw new Error('OpenAI returned invalid JSON for email analysis');
+    throw new Error('Gemini returned invalid JSON for email analysis');
   }
 
   const result = emailAnalysisResponseSchema.safeParse(json);
@@ -43,7 +43,7 @@ function parseAnalysisResponse(raw: string, emailId: string): EmailAnalysisResul
  * The AI processing pipeline for a single email (docs/AI_PIPELINE.md):
  * clean HTML → extract readable text → [summarize/categorize/prioritize/
  * detect action] + [generate embedding for RAG, docs/RAG_AND_DASHBOARDS.md]
- * — the two OpenAI calls run in parallel since they're independent (both
+ * — the two Gemini calls run in parallel since they're independent (both
  * only depend on the already-extracted `cleanText`), not sequential. Called
  * exclusively from the BullMQ worker
  * (modules/queue/workers/emailProcessing.worker.ts), never inline during

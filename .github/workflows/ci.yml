@@ -14,9 +14,6 @@ jobs:
   server:
     name: Server — lint, typecheck, test, build
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: server
     # A live Redis is required: BullMQ job-id validation (see
     # emailSync.queue.test.ts) and the rate limiter's RedisStore only
     # surface real errors against an actual connection, not a mock.
@@ -37,13 +34,32 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: server/package-lock.json
+          # This is an npm-workspaces monorepo with ONE lockfile at the repo
+          # root — not one per workspace. (A previous version of this file
+          # pointed at server/package-lock.json / client/package-lock.json,
+          # neither of which exists; same root mistake that briefly broke
+          # the Dockerfiles — see server/Dockerfile's comment.)
+          cache-dependency-path: package-lock.json
 
+      # API integration tests (auth/email/dashboard.integration.test.ts) run
+      # against a real in-memory MongoDB via mongodb-memory-server, which
+      # downloads a ~66MB mongod binary on first use. Caching it means only
+      # the first-ever CI run pays that cost — every run after reuses it.
+      - name: Cache mongodb-memory-server binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/mongodb-binaries
+          key: mongodb-binaries-${{ runner.os }}
+
+      # Install once at the root (installs every workspace); each following
+      # step scopes to the server workspace with --workspace=server, which
+      # npm runs with that workspace's directory as its working directory —
+      # so e.g. the lint script's "src/**/*.ts" glob still resolves correctly.
       - run: npm ci
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm test -- --coverage
-      - run: npm run build
+      - run: npm run lint --workspace=server
+      - run: npm run typecheck --workspace=server
+      - run: npm test --workspace=server -- --coverage
+      - run: npm run build --workspace=server
 
       - name: Audit dependencies
         run: npm audit --audit-level=high
@@ -51,9 +67,6 @@ jobs:
   client:
     name: Client — lint, typecheck, test, build
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: client
     steps:
       - uses: actions/checkout@v4
 
@@ -61,15 +74,47 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: client/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - run: npm ci
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
+      - run: npm run lint --workspace=client
+      - run: npm run typecheck --workspace=client
+      - run: npm test --workspace=client
+      - run: npm run build --workspace=client
         env:
           VITE_API_BASE_URL: http://localhost:5000/api/v1
 
       - name: Audit dependencies
         run: npm audit --audit-level=high
+
+  docker:
+    name: Docker — verify images build
+    runs-on: ubuntu-latest
+    # This job exists because the Docker build silently didn't work for a
+    # while: both Dockerfiles were scoped to their own subdirectory as build
+    # context, which can never see the workspaces' shared root lockfile.
+    # `docker build` failing is now a required CI check, not something only
+    # discovered at deploy time in cd.yml.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          push: false
+          cache-from: type=gha,scope=server
+          cache-to: type=gha,mode=max,scope=server
+
+      - name: Build client image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: client/Dockerfile
+          push: false
+          build-args: |
+            VITE_API_BASE_URL=http://localhost:5000/api/v1
+          cache-from: type=gha,scope=client
+          cache-to: type=gha,mode=max,scope=client

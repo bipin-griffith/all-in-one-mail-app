@@ -1,17 +1,32 @@
 name: ai-mail-assistant
 
-# Production compose for a single EC2 host: MongoDB is Atlas (external, via
-# MONGO_URI secret), Redis is self-hosted in-container for BullMQ. Scale the
-# API/worker horizontally across more EC2 instances behind an ALB as load grows.
+# Production compose for a single EC2 host. MongoDB is Atlas (external, via
+# MONGO_URI secret — see docs/DEPLOYMENT.md's AWS Secrets Manager section).
+# Redis is self-hosted in-container for BullMQ. The frontend is NOT here —
+# it deploys to S3 + CloudFront (see scripts/deploy-frontend.sh), not
+# Docker/EC2, so there's no `client` service in this file.
+#
+# `server` binds to 127.0.0.1 only, not 0.0.0.0 — it is reachable solely
+# through the host's Nginx reverse proxy (see nginx/app.conf), which
+# terminates TLS and is the only thing actually listening on the public
+# 80/443. This means a misconfigured security group that accidentally opens
+# port 5000 still doesn't expose the API directly.
+
+x-aws-logging: &aws-logging
+  driver: awslogs
+  options:
+    awslogs-region: ${AWS_REGION}
+    awslogs-group: ${CLOUDWATCH_LOG_GROUP}
+    awslogs-create-group: 'true'
+    awslogs-stream-prefix: ai-mail-assistant
+
 services:
   redis:
     image: redis:7-alpine
     restart: always
     volumes:
       - redis-data:/data
-    logging:
-      driver: json-file
-      options: { max-size: '10m', max-file: '3' }
+    logging: *aws-logging
 
   server:
     image: ${SERVER_IMAGE}
@@ -21,19 +36,29 @@ services:
     environment:
       REDIS_URL: redis://redis:6379
     ports:
-      - '5000:5000'
+      - '127.0.0.1:5000:5000'
     depends_on:
       - redis
     deploy:
       resources:
         limits: { memory: 512M }
-    logging:
-      driver: json-file
-      options: { max-size: '10m', max-file: '5' }
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://localhost:5000/health', r => process.exit(r.statusCode===200?0:1)).on('error', () => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging: *aws-logging
 
   worker:
     image: ${SERVER_IMAGE}
-    command: ['node', 'dist/modules/queue/worker.js']
+    command: ['pm2-runtime', 'start', 'ecosystem.config.js', '--only', 'worker']
     restart: always
     env_file:
       - ./server/.env
@@ -45,17 +70,7 @@ services:
       replicas: 2
       resources:
         limits: { memory: 512M }
-    logging:
-      driver: json-file
-      options: { max-size: '10m', max-file: '5' }
-
-  client:
-    image: ${CLIENT_IMAGE}
-    restart: always
-    ports:
-      - '80:80'
-    depends_on:
-      - server
+    logging: *aws-logging
 
 volumes:
   redis-data:

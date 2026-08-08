@@ -38,5 +38,24 @@ module.exports = {
     ],
     'no-console': ['warn', { allow: ['warn', 'error'] }],
   },
+  overrides: [
+    {
+      // supertest's `res.body` is typed `any` (it has no way to know your
+      // API's response shape), so asserting against it — `res.body.data.x`
+      // — trips the strict any-value rules on every single line of a real
+      // integration test. Relaxing these here (test files only) is a
+      // deliberate, standard tradeoff: full type-safety on ad-hoc response
+      // assertions has low value relative to the friction of casting every
+      // access, and the actual application code these rules matter for is
+      // unaffected.
+      files: ['**/*.test.ts'],
+      rules: {
+        '@typescript-eslint/no-unsafe-member-access': 'off',
+        '@typescript-eslint/no-unsafe-assignment': 'off',
+        '@typescript-eslint/no-unsafe-call': 'off',
+        '@typescript-eslint/no-unsafe-argument': 'off',
+      },
+    },
+  ],
   ignorePatterns: ['dist', 'node_modules', 'jest.config.js'],
 };

@@ -9,7 +9,7 @@ per-email AI pipeline these both build on, see
 ## Where the code lives
 
 ```
-modules/ai/embedding.service.ts     → wraps OpenAI's embeddings API
+modules/ai/embedding.service.ts     → wraps Gemini's embeddings API
 modules/ai/vectorSearch.service.ts  → Atlas $vectorSearch + local brute-force fallback
 modules/ai/chat.service.ts          → RAG orchestration for POST /chat
 modules/ai/aiUsage.service.ts       → shared plan-quota logic (manual AI actions + chat)
@@ -82,7 +82,7 @@ const [analysisResult, embeddingResult] = await Promise.all([
 ]);
 ```
 
-These are two independent OpenAI calls (chat completion vs. embeddings —
+These are two independent Gemini calls (chat completion vs. embeddings —
 different endpoints entirely) that both only depend on the same already-
 extracted `cleanText`, so running them concurrently instead of sequentially
 roughly halves the wall-clock latency per email with no added cost. No new
@@ -138,7 +138,7 @@ work rather than built speculatively here.
 Every other AI action in this codebase (`summarize`, `draft-reply`,
 `classify`, and the automatic per-email pipeline) is enqueued as a BullMQ
 job and polled — see docs/ARCHITECTURE.md. `POST /chat` is the one
-deliberate exception: it makes its two OpenAI calls (embed the question,
+deliberate exception: it makes its two Gemini calls (embed the question,
 then one chat completion) and returns the answer directly in the HTTP
 response. The reasoning: a chat reply is an interactive, "the user is
 actively waiting right now" interaction with a small, bounded amount of
@@ -162,7 +162,7 @@ question in, answer + sources out; there's no `Conversation`/`Message`
 persistence layer, and the frontend chat page only keeps message history in
 local component state, not synced from the server. This was a deliberate
 scope boundary: the explicit ask was "retrieve relevant emails, send
-context to OpenAI, return accurate responses," which a stateless endpoint
+context to Gemini, return accurate responses," which a stateless endpoint
 satisfies fully. True multi-turn memory (referencing "that second one" from
 a prior answer) is a natural follow-up, not built speculatively here.
 

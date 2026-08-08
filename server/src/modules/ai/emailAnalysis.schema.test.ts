@@ -1,7 +1,7 @@
 import { emailAnalysisResponseSchema } from './emailAnalysis.schema';
 
 describe('emailAnalysisResponseSchema', () => {
-  it('accepts a well-formed OpenAI response', () => {
+  it('accepts a well-formed Gemini response', () => {
     const result = emailAnalysisResponseSchema.parse({
       summary: 'Your package has shipped.',
       category: 'shopping',

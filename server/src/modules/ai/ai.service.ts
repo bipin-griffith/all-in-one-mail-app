@@ -5,7 +5,7 @@ import { ApiError } from '../../utils/ApiError';
 import { enqueueAiJob } from '../queue/queues/ai.queue';
 
 import { assertQuotaAndIncrement } from './aiUsage.service';
-import { completeChat } from './openai.client';
+import { completeChat } from './gemini.client';
 
 async function assertThreadOwnership(userId: string, threadId: string): Promise<ThreadDocument> {
   const thread = await Thread.findById(threadId).populate('emailAccount');

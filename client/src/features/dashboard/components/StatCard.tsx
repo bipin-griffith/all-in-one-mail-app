@@ -18,14 +18,22 @@ export function StatCard({
   tone?: 'default' | 'warning' | 'danger';
 }) {
   return (
-    <Card>
+    <Card className="relative overflow-hidden">
+      <span
+        className={cn(
+          'absolute inset-x-0 top-0 h-1',
+          tone === 'warning' && 'bg-amber-500',
+          tone === 'danger' && 'bg-destructive',
+          tone === 'default' && 'brand-gradient',
+        )}
+      />
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
       </CardHeader>
       <CardContent>
         <div
           className={cn(
-            'text-2xl font-semibold',
+            'text-3xl font-semibold tracking-tight',
             tone === 'warning' && 'text-amber-600 dark:text-amber-400',
             tone === 'danger' && 'text-destructive',
           )}

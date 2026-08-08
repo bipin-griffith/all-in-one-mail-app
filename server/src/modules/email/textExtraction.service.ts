@@ -6,7 +6,7 @@ import sanitizeHtml from 'sanitize-html';
  * Gmail message content into plain, readable text suitable for prompting an
  * LLM. Kept separate from emailProcessing.service.ts (which owns steps
  * 3–6 — summary/category/priority/action) so the deterministic, free
- * text-handling logic is independently testable without touching OpenAI.
+ * text-handling logic is independently testable without touching Gemini.
  */
 
 /**
