@@ -4,6 +4,7 @@ import { Link, useLocation } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import { useLogout } from '@/features/auth/hooks/useLogout';
+import type { EmailAccount } from '@/features/email/api/email.api';
 import { useEmailAccounts, useSyncEmailAccount } from '@/features/email/hooks/useEmailAccounts';
 import { avatarColorFor, initialsFor } from '@/lib/avatar';
 import { cn } from '@/lib/utils';
@@ -14,6 +15,23 @@ const NAV_ITEMS = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/chat', label: 'Ask your inbox', icon: MessageCircle },
 ] as const;
+
+/**
+ * Mirrors the server's SYNC_LOCK_STALE_MS (email.service.ts): a 'syncing'
+ * account whose worker died mid-job (crash, restart) without ever flipping
+ * status back would otherwise disable this button forever, since the raw
+ * status alone can't distinguish "genuinely in flight" from "orphaned
+ * lock." The backend already accepts a retry past this threshold — the
+ * button needs to agree, or a stuck account becomes unrecoverable from the
+ * UI even though the API would happily take the request.
+ */
+const SYNC_LOCK_STALE_MS = 10 * 60 * 1000;
+
+function isActivelySyncing(account: EmailAccount): boolean {
+  if (account.syncStatus !== 'syncing') return false;
+  if (!account.syncStartedAt) return true;
+  return Date.now() - new Date(account.syncStartedAt).getTime() <= SYNC_LOCK_STALE_MS;
+}
 
 export function AppShell({ children }: { children: ReactNode }) {
   const user = useAuthStore((state) => state.user);
@@ -55,41 +73,44 @@ export function AppShell({ children }: { children: ReactNode }) {
         </nav>
 
         <div className="space-y-1 border-t pt-3 text-sm">
-          {accounts?.map((account) => (
-            <div
-              key={account._id}
-              className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-accent/50"
-            >
-              <div className="flex min-w-0 items-center gap-2">
-                <span
-                  className={cn(
-                    'h-1.5 w-1.5 shrink-0 rounded-full',
-                    account.syncStatus === 'error'
-                      ? 'bg-destructive'
-                      : account.syncStatus === 'syncing'
-                        ? 'animate-pulse bg-amber-500'
-                        : 'bg-emerald-500',
-                  )}
-                  title={`Sync status: ${account.syncStatus}`}
-                />
-                <span className="truncate text-xs text-muted-foreground">{account.emailAddress}</span>
-              </div>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-7 w-7 shrink-0"
-                onClick={() => sync.mutate(account._id)}
-                disabled={sync.isPending || account.syncStatus === 'syncing'}
-                title={account.syncStatus === 'error' ? 'Last sync failed — retry' : 'Sync now'}
+          {accounts?.map((account) => {
+            const syncing = isActivelySyncing(account);
+            return (
+              <div
+                key={account._id}
+                className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-accent/50"
               >
-                {account.syncStatus === 'error' ? (
-                  <AlertCircle className="h-3.5 w-3.5 text-destructive" />
-                ) : (
-                  <RefreshCcw className={cn('h-3.5 w-3.5', account.syncStatus === 'syncing' && 'animate-spin')} />
-                )}
-              </Button>
-            </div>
-          ))}
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className={cn(
+                      'h-1.5 w-1.5 shrink-0 rounded-full',
+                      account.syncStatus === 'error'
+                        ? 'bg-destructive'
+                        : syncing
+                          ? 'animate-pulse bg-amber-500'
+                          : 'bg-emerald-500',
+                    )}
+                    title={`Sync status: ${account.syncStatus}`}
+                  />
+                  <span className="truncate text-xs text-muted-foreground">{account.emailAddress}</span>
+                </div>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 shrink-0"
+                  onClick={() => sync.mutate(account._id)}
+                  disabled={sync.isPending || syncing}
+                  title={account.syncStatus === 'error' ? 'Last sync failed — retry' : 'Sync now'}
+                >
+                  {account.syncStatus === 'error' ? (
+                    <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+                  ) : (
+                    <RefreshCcw className={cn('h-3.5 w-3.5', syncing && 'animate-spin')} />
+                  )}
+                </Button>
+              </div>
+            );
+          })}
 
           <div className="flex items-center justify-between gap-2 pt-2">
             <div className="flex min-w-0 items-center gap-2">

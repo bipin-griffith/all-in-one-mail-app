@@ -7,6 +7,8 @@ export interface EmailAccount {
   emailAddress: string;
   provider: 'google';
   syncStatus: 'idle' | 'syncing' | 'error';
+  /** When the current 'syncing' status began — see AppShell's staleness check. */
+  syncStartedAt: string | null;
   lastSyncedAt: string | null;
 }
 
